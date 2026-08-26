@@ -27,7 +27,7 @@ SECRET_KEY = SECRET_SECRET_KEY
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['www.britishdenimlatam.com', '127.0.0.1']
+ALLOWED_HOSTS = ['britishdenimlatam.com', '127.0.0.1']
 
 
 # Application definition
@@ -138,6 +138,8 @@ MEDIA_URL='/images/'
 LOGIN_REDIRECT_URL = "index"
 LOGIN_URL = 'login'
 
+LOGOUT_REDIRECT_URL = '/'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field
 
@@ -153,7 +155,7 @@ CORS_ALLOW_ALL_ORIGINS = True
 #Email Configuration
 
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtppro.zoho.com'
+EMAIL_HOST = 'smtp.zeptomail.com'
 EMAIL_USE_TLS = True
 EMAIL_PORT = 587
 EMAIL_HOST_USER = SECRET_EMAIL_HOST_USER

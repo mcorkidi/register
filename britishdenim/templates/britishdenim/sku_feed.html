@@ -1,0 +1,144 @@
+{% extends "britishdenim/base.html" %}
+{% block body %} 
+{% load static %}
+
+<style>
+    .sku-feed { max-width: 900px; }
+    .feed-intro { color: #5f5f5f; line-height: 1.7; }
+    .sku-post-card {
+        border: 0;
+        border-radius: 14px;
+        box-shadow: 0 5px 22px rgba(0, 0, 0, .08);
+        overflow: hidden;
+    }
+    .sku-post-card .card-body { padding: 1.5rem; }
+    .post-avatar {
+        align-items: center;
+        background: #343a40;
+        border-radius: 50%;
+        color: #fff;
+        display: flex;
+        font-size: 1.1rem;
+        font-weight: 700;
+        height: 42px;
+        justify-content: center;
+        text-transform: uppercase;
+        width: 42px;
+    }
+    .post-author { color: #212529; font-weight: 700; }
+    .post-date { color: #8b8b8b; font-size: .8rem; }
+    .post-text { color: #414141; line-height: 1.65; white-space: pre-line; }
+    .post-gallery { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .post-gallery:has(a:only-child) { grid-template-columns: 1fr; }
+    .post-gallery img {
+        background: #f6f6f6;
+        display: block;
+        height: 280px;
+        object-fit: contain;
+        object-position: center;
+        transition: transform .2s ease;
+        width: 100%;
+    }
+    .post-gallery a { background: #f6f6f6; overflow: hidden; }
+    .post-gallery a:only-child img { height: min(480px, 60vw); }
+    .post-gallery a:hover img { transform: scale(1.04); }
+    .post-like { border-radius: 20px; font-weight: 600; padding: .35rem .85rem; }
+</style>
+
+<div class="container sku-feed py-4">
+    <div class="row">
+        <div class="col-12">
+        <p class="feed-intro">Te invitamos a formar parte de nuestra comunidad de amantes del denim compartiendo tus imágenes y experiencias
+         con nuestras prendas. ¿Tienes ese par de jeans que te hace sentir imparable o una chaqueta que nunca pasa 
+         desapercibida? Queremos verlo todo.</p>
+         <hr>
+        </div>
+    </div>
+    <div class="row">
+        <div class="mx-auto justify-content-center"><h1>{{sku.sku}} - {{sku.name}}</h1></div>
+
+        {% if user.is_authenticated %}
+        <button type="button" class="btn btn-secondary mx-auto justify-content-right" data-toggle="modal" data-target="#staticBackdrop"  name="post">Post</button>
+        {% endif %}
+    </div>
+    <hr>
+    <div class="row">
+        <div class="col-12">
+            {% for post in posts %}
+            <article class="card sku-post-card mb-4">
+                <div class="card-body">
+                    <header class="d-flex align-items-center mb-3">
+                        <div class="post-avatar mr-3">{{ post.user_id.username|slice:":1" }}</div>
+                        <div>
+                            <div class="post-author">{{ post.user_id }}</div>
+                            <div class="post-date">{{ post.creationDate|date:"d M Y · H:i" }}</div>
+                        </div>
+                    </header>
+                    {% if post.text %}<p class="post-text mb-3">{{ post.text }}</p>{% endif %}
+                    {% if post.images %}
+                    <div class="post-gallery mb-3">
+                        {% for image_url in post.images %}
+                        <a href="{{ image_url }}" target="_blank" rel="noopener noreferrer" class="rounded">
+                            <img src="{{ image_url }}" alt="Imagen de la publicación de {{ post.user_id }}" class="img-fluid">
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    <footer class="border-top pt-3">
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="like">
+                            <input type="hidden" name="post_id" value="{{ post.id }}">
+                            <button type="submit" class="btn btn-sm post-like {% if post.liked_by_current_user %}btn-primary{% else %}btn-outline-primary{% endif %}" {% if post.liked_by_current_user %}disabled{% endif %}>
+                                <i class="fas fa-heart mr-1" aria-hidden="true"></i>
+                                {% if post.liked_by_current_user %}Te gusta{% else %}Me gusta{% endif %} · {{ post.like_count }}
+                            </button>
+                        </form>
+                    </footer>
+                </div>
+            </article>
+            {% empty %}
+            <div class="card border-0 shadow-sm text-center py-5">
+                <div class="card-body text-muted">Aún no hay comentarios aprobados para este producto.</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+
+<!-- MODAL CONTENT -->
+
+<div id="staticBackdrop" class="modal fade" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content p-3">
+
+
+            <div class="d-flex justify-content-end">
+                <button type="button" class="btn-close" data-dismiss="modal" aria-label="Close">x</button>
+            </div>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <h2>Nuevo Post</h2>
+                <div class="input-group">
+                    <span class="input-group-text">Comentario</span>
+                    <textarea class="form-control" aria-label="With textarea" name="text" maxlength="280"></textarea>
+                  
+                </div>
+                <div class="col-12 mt-2 px-0">
+                    <label for="imageInput">Imágenes (máximo 3, 5 MB cada una)</label>
+                    <input type="file" class="form-control-file" name="images" id="imageInput" multiple accept="image/jpeg,image/png,image/gif,image/webp">
+                </div>
+                <p class="text-muted mt-2 mb-0">Los comentarios se publican después de la aprobación de un administrador.</p>
+                <div class="mx-auto ">
+                    <button type="submit" class="btn btn-primary  mx-auto justify-content-right mt-2">Post</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+
+</div>
+
+
+{% endblock %} 

@@ -1,3 +1,80 @@
+from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.urls import reverse
+from unittest.mock import patch
 
-# Create your tests here.
+from .models import Consumer, Item, skuPost
+
+class SkuFeedTests(TestCase):
+    def setUp(self):
+        self.item = Item.objects.create(sku='BD-001', name='Denim Jacket')
+        self.owner = User.objects.create_user('owner', password='password')
+        self.other_user = User.objects.create_user('other', password='password')
+        Consumer.objects.create(user_id=self.owner, sku=self.item)
+        self.url = reverse('sku_feed', kwargs={'sku': self.item.sku})
+
+    def test_only_registered_user_can_access_feed(self):
+        self.client.force_login(self.other_user)
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_registered_user_comment_is_pending_and_not_displayed(self):
+        self.client.force_login(self.owner)
+
+        response = self.client.post(self.url, {'text': 'Great jacket!'}, follow=True)
+
+        post = skuPost.objects.get()
+        self.assertFalse(post.is_approved)
+        self.assertContains(response, 'será publicado')
+        self.assertNotContains(response, 'Great jacket!')
+
+    def test_only_approved_comments_are_displayed(self):
+        skuPost.objects.create(sku=self.item, user_id=self.owner, text='Pending comment')
+        skuPost.objects.create(
+            sku=self.item,
+            user_id=self.owner,
+            text='Approved comment',
+            is_approved=True,
+        )
+        self.client.force_login(self.owner)
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, 'Approved comment')
+        self.assertNotContains(response, 'Pending comment')
+
+    @patch('britishdenim.views.upload_sku_feed_images')
+    def test_image_urls_are_stored_with_pending_post(self, upload_images):
+        upload_images.return_value = ['https://ketengostorage.com/sku-feed-images/1/test.jpg']
+        image = SimpleUploadedFile(
+            'jacket.jpg',
+            b'\xff\xd8\xff\xe0' + b'0' * 20,
+            content_type='image/jpeg',
+        )
+        self.client.force_login(self.owner)
+
+        self.client.post(self.url, {'text': 'My jacket', 'images': image})
+
+        post = skuPost.objects.get()
+        self.assertEqual(
+            post.imageList,
+            '["https://ketengostorage.com/sku-feed-images/1/test.jpg"]',
+        )
+        upload_images.assert_called_once()
+
+    def test_registered_user_can_like_an_approved_post_once(self):
+        post = skuPost.objects.create(
+            sku=self.item,
+            user_id=self.owner,
+            text='Approved comment',
+            is_approved=True,
+        )
+        self.client.force_login(self.owner)
+
+        self.client.post(self.url, {'action': 'like', 'post_id': post.id})
+        self.client.post(self.url, {'action': 'like', 'post_id': post.id})
+
+        self.assertEqual(post.likepost_set.count(), 1)

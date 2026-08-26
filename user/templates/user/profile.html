@@ -229,7 +229,7 @@
                                             <tbody>
                                                 {% for i in consumer %}
                                                 <tr>
-                                                        <td>{{ i.sku.sku}}</td>
+                                                        <td><a href="{% url 'sku_feed' sku=i.sku.sku %}">{{ i.sku.sku}}</a></td>
                                                         <td>{{i.sku.name}}</td>
                                                         <td>{{ i.when}}</td>
                                                 </tr>

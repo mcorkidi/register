@@ -1,5 +1,5 @@
-from django.shortcuts import render, redirect
-from .models import Item, Consumer, Scan, Coupon
+from django.shortcuts import get_object_or_404, render, redirect
+from .models import *
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.admin.views.decorators import staff_member_required
@@ -16,6 +16,11 @@ from .serializers import ItemSerializer, LoginSerializer, LogoutSerializer
 import pycountry
 import json
 from django.views.decorators.cache import cache_page
+from django.http import HttpResponseForbidden
+from django.conf import settings
+from ftplib import FTP, error_perm
+from urllib.parse import quote, urljoin
+from uuid import uuid4
 from user.models import Profile
 
 def ipInfo(addr=''):
@@ -40,7 +45,7 @@ def index(request):
 
 def register(request, sku):
     #register with sku in url
-    
+
     def get_client_ip(request):
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
@@ -50,23 +55,26 @@ def register(request, sku):
         return ip
     ip = get_client_ip(request)
     print(ip)
-    
-    ipCall = ipInfo(ip)
-    items = Item.objects.all()
     try: 
-        if ipCall['bogon'] ==True:
-            print("Invalid IP")
-            city = 'City'
-            where = 'NotDetected'   
-            country = 'NotDetected'
-        else:
+        ipCall = ipInfo(ip)
+   
+        items = Item.objects.all()
+        try: 
+            if ipCall['bogon'] ==True:
+                print("Invalid IP")
+                city = 'City'
+                where = 'NotDetected'   
+                country = 'NotDetected'
+            else:
+                city = ipCall['city']
+                where = ipCall['region']    
+                country = ipCall['country']
+        except:
             city = ipCall['city']
-            where = ipCall['region']    
+            where = ipCall['region']   
             country = ipCall['country']
     except:
-        city = ipCall['city']
-        where = ipCall['region']   
-        country = ipCall['country']
+        print('error getting ip')
     when = datetime.now()
 
     if request.method == 'POST':
@@ -111,7 +119,7 @@ def register(request, sku):
             newConsumer = Consumer(user_id=user,sku=item, where=where,when=when,country=country,city=city,getInfo=getInfo )
             newConsumer.save()
             messages.success(request, f"Producto {item.sku} {item.name} registrado exitosamente a tu perfil. ")
-            return redirect('profile')
+            return redirect('sku_feed', sku=item.sku)
             
 
         if "loginReg" in request.POST:
@@ -129,7 +137,7 @@ def register(request, sku):
                 newConsumer = Consumer(user_id=request.user,sku=item, where=where,when=when,country=country,city=city )
                 newConsumer.save()
                 messages.success(request, f'Bienvenido {auth.first_name}. Gracias por registrar un producto.')
-                return redirect('profile')
+                return redirect('sku_feed', sku=item.sku)
             else:
                 messages.error(request, "Credenciales incorrectos.")
                 return redirect('register', sku=sku)
@@ -145,7 +153,7 @@ def register(request, sku):
             newConsumer = Consumer(user_id=request.user,sku=item, where=where,when=when,country=country,city=city)
             newConsumer.save()
             messages.success(request, f"Producto {item.sku} {item.name} registrado exitosamente a tu perfil. ")
-            return redirect('profile')
+            return redirect('sku_feed', sku=item.sku)
 
       
         
@@ -160,13 +168,141 @@ def register(request, sku):
             else:
                 newScan = Scan(sku=item,where=where,when=when,country=country,city=city)
                 newScan.save()
+                # Redirect to Instagram profile
+                return redirect("https://www.instagram.com/britishdenimlatam/")
+
         except:
             pass
-
-    city = city.replace(" ", "_")    
+    try: 
+        city = city.replace(" ", "_")    
+    except:
+        city = "_"
     context = {'sku': sku, 'city': city}  
 
     return render(request, 'britishdenim/registration.html', context)
+
+def LogOutView(request):
+    logout(request)
+    return redirect('index')
+
+
+MAX_POST_IMAGES = 3
+MAX_POST_IMAGE_SIZE = 5 * 1024 * 1024
+
+
+def image_extension(upload):
+    """Return a verified extension for a supported image upload, or None."""
+    header = upload.read(16)
+    upload.seek(0)
+
+    if header.startswith(b'\xff\xd8\xff'):
+        return 'jpg'
+    if header.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'png'
+    if header.startswith((b'GIF87a', b'GIF89a')):
+        return 'gif'
+    if header[:4] == b'RIFF' and header[8:12] == b'WEBP':
+        return 'webp'
+    return None
+
+
+def upload_sku_feed_images(item, uploads):
+    """Upload post images to the public Ketengo Storage SKU-feed directory."""
+    folder_parts = ('sku-feed-images', str(item.pk))
+    uploaded_urls = []
+
+    with FTP(settings.FTP_DOMAIN, timeout=30) as ftp:
+        ftp.login(settings.FTP_USER, settings.FTP_PASSWORD)
+        for folder in folder_parts:
+            try:
+                ftp.cwd(folder)
+            except error_perm:
+                ftp.mkd(folder)
+                ftp.cwd(folder)
+
+        for upload, extension in uploads:
+            filename = f'{uuid4().hex}.{extension}'
+            upload.seek(0)
+            ftp.storbinary(f'STOR {filename}', upload)
+            remote_path = '/'.join((*folder_parts, filename))
+            uploaded_urls.append(urljoin(settings.FTP_BASE, quote(remote_path)))
+
+    return uploaded_urls
+
+
+@login_required
+def skuFeed(request, sku):
+    item = get_object_or_404(Item, sku=sku)
+    is_registered = Consumer.objects.filter(user_id=request.user, sku=item).exists()
+
+    if not (request.user.is_staff or is_registered):
+        return HttpResponseForbidden('Register this item before accessing its feed.')
+
+    if request.method == 'POST':
+        if request.POST.get('action') == 'like':
+            post = get_object_or_404(
+                skuPost,
+                pk=request.POST.get('post_id'),
+                sku=item,
+                is_approved=True,
+            )
+            _, created = likePost.objects.get_or_create(skuPost=post, user_id=request.user)
+            if created:
+                messages.success(request, 'Te gustó esta publicación.')
+            else:
+                messages.info(request, 'Ya registramos tu like en esta publicación.')
+            return redirect('sku_feed', sku=item.sku)
+
+        text = request.POST.get('text', '').strip()
+        image_files = request.FILES.getlist('images')
+
+        if not text and not image_files:
+            messages.error(request, 'Escribe un comentario o selecciona al menos una imagen.')
+        elif len(text) > 280:
+            messages.error(request, 'El comentario no puede superar los 280 caracteres.')
+        elif len(image_files) > MAX_POST_IMAGES:
+            messages.error(request, 'Puedes subir un máximo de 3 imágenes por publicación.')
+        else:
+            images = []
+            for image_file in image_files:
+                extension = image_extension(image_file)
+                if not extension:
+                    messages.error(request, 'Solo se permiten imágenes JPG, PNG, GIF o WebP.')
+                    break
+                if image_file.size > MAX_POST_IMAGE_SIZE:
+                    messages.error(request, 'Cada imagen debe tener un tamaño máximo de 5 MB.')
+                    break
+                images.append((image_file, extension))
+            else:
+                try:
+                    image_urls = upload_sku_feed_images(item, images) if images else []
+                except Exception:
+                    messages.error(request, 'No fue posible subir las imágenes. Intenta nuevamente.')
+                else:
+                    skuPost.objects.create(
+                        sku=item,
+                        user_id=request.user,
+                        text=text,
+                        imageList=json.dumps(image_urls),
+                    )
+                    messages.success(
+                        request,
+                        'Tu publicación fue enviada y será publicada cuando un administrador la apruebe.',
+                    )
+        return redirect('sku_feed', sku=item.sku)
+
+    posts = skuPost.objects.filter(sku=item, is_approved=True).prefetch_related('likepost_set')
+    for post in posts:
+        try:
+            post.images = json.loads(post.imageList) if post.imageList else []
+        except json.JSONDecodeError:
+            post.images = []
+        post.likes = list(post.likepost_set.all())
+        post.like_count = len(post.likes)
+        post.liked_by_current_user = any(like.user_id_id == request.user.id for like in post.likes)
+    context = {'posts': posts, 'sku': item}
+    return render(request, 'britishdenim/sku_feed.html', context)
+
 
 def contact(request):
 
@@ -407,8 +543,4 @@ class LoggedInUser(viewsets.GenericViewSet,
         """
         
         return Response(self.serializer_class(self.request.user, many=False).data)
-
-
-
-
 
