@@ -132,3 +132,22 @@ class ConsumerTests(TestCase):
         self.assertEqual(response.context['count'], 1)
         self.assertEqual(response.context['consumers'][0]['username'], 'customer')
         self.assertEqual(response.context['consumers'][0]['skus'], ['BD-400', 'BD-401'])
+
+    @patch('britishdenim.views.send_mail')
+    def test_staff_can_email_review_invitation_for_registered_sku(self, send_mail_mock):
+        staff_user = User.objects.create_superuser('invite-admin', 'invite@example.com', 'password')
+        customer = User.objects.create_user('reviewer', 'reviewer@example.com', 'password')
+        item = Item.objects.create(sku='BD-500', name='Denim Jacket')
+        registration = Consumer.objects.create(user_id=customer, sku=item)
+        self.client.force_login(staff_user)
+
+        response = self.client.post(
+            reverse('invite_consumer_to_post', kwargs={'consumer_id': registration.id}),
+        )
+
+        self.assertRedirects(response, reverse('consumer'))
+        subject, message, sender, recipients = send_mail_mock.call_args.args
+        self.assertIn('Denim Jacket', subject)
+        self.assertIn('http://testserver/sku_feed/BD-500', message)
+        self.assertEqual(sender, 'noreply@britishdenimlatam.com')
+        self.assertEqual(recipients, ['reviewer@example.com'])

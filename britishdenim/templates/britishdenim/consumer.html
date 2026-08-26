@@ -39,6 +39,7 @@
                                         <th>Name</th>
                                         <th>Country</th>
                                         <th>Items</th>
+                                        <th>Invite to post</th>
                                         
                                     </tr>
                                 </thead>
@@ -49,10 +50,18 @@
                                         <td>{{ consumer.full_name|default:'-' }}</td>
                                         <td>{{ consumer.country }}</td>
                                         <td>{% for sku in consumer.skus %}<span class="badge badge-secondary mr-1">{{ sku }}</span>{% endfor %}</td>
+                                        <td>
+                                            {% for registration in consumer.registrations %}
+                                            <form method="post" action="{% url 'invite_consumer_to_post' consumer_id=registration.id %}" class="d-inline-block mb-1">
+                                                {% csrf_token %}
+                                                <button type="submit" class="btn btn-sm btn-primary">Invite · {{ registration.sku }}</button>
+                                            </form>
+                                            {% endfor %}
+                                        </td>
                                     </tr>
                                     {% empty %}
                                     <tr>
-                                        <td colspan="4" class="text-center text-muted">No hay consumidores con productos registrados.</td>
+                                        <td colspan="5" class="text-center text-muted">No hay consumidores con productos registrados.</td>
                                     </tr>
                                     {%endfor%} 
                                     

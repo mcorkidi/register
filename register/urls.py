@@ -49,6 +49,7 @@ urlpatterns = [
     path('stats/', views.stats, name= 'stats'),
     path('charts/', views.charts, name= 'charts'),
     path('consumer/', views.consumer, name= 'consumer'),
+    path('consumer/<int:consumer_id>/invite/', views.invite_consumer_to_post, name='invite_consumer_to_post'),
     path('doc', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
 ]
 

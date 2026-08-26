@@ -19,6 +19,8 @@ from django.views.decorators.cache import cache_page
 from django.http import HttpResponseForbidden
 from django.conf import settings
 from django.db.models import Count
+from django.core.mail import send_mail
+from django.urls import reverse
 from ftplib import FTP, error_perm
 from urllib.parse import quote, urljoin
 from uuid import uuid4
@@ -433,26 +435,31 @@ def consumer(request):
     consumer_rows = Consumer.objects.order_by(
         'country', 'user_id__username', 'sku__sku',
     ).values_list(
+        'id',
         'user_id__username',
         'user_id__first_name',
         'user_id__last_name',
+        'user_id__email',
         'country',
         'sku__sku',
     )
     consumers_by_username = {}
-    for username, first_name, last_name, country, sku in consumer_rows.iterator(chunk_size=2000):
+    for consumer_id, username, first_name, last_name, email, country, sku in consumer_rows.iterator(chunk_size=2000):
         consumer = consumers_by_username.setdefault(
             username,
             {
                 'username': username,
                 'full_name': f'{first_name} {last_name}'.strip(),
+                'email': email,
                 'countries': set(),
                 'skus': set(),
+                'registrations': [],
             },
         )
         if country:
             consumer['countries'].add(country)
         consumer['skus'].add(sku)
+        consumer['registrations'].append({'id': consumer_id, 'sku': sku})
 
     consumers = []
     for consumer in consumers_by_username.values():
@@ -462,6 +469,42 @@ def consumer(request):
 
     context = {'consumers': consumers, 'count': len(consumers)}
     return render(request, 'britishdenim/consumer.html', context)
+
+
+@staff_member_required
+def invite_consumer_to_post(request, consumer_id):
+    if request.method != 'POST':
+        return redirect('consumer')
+
+    registration = get_object_or_404(
+        Consumer.objects.select_related('user_id', 'sku'),
+        pk=consumer_id,
+    )
+    recipient = registration.user_id.email
+    if not recipient:
+        messages.error(request, 'Este consumidor no tiene un correo electrónico registrado.')
+        return redirect('consumer')
+
+    feed_url = request.build_absolute_uri(
+        reverse('sku_feed', kwargs={'sku': registration.sku.sku}),
+    )
+    first_name = registration.user_id.first_name or registration.user_id.username
+    subject = f'Cuéntanos tu experiencia con {registration.sku.name or registration.sku.sku}'
+    message = (
+        f'Hola {first_name},\n\n'
+        f'Gracias por registrar tu producto British Denim ({registration.sku.sku}). '
+        'Nos encantaría conocer tu experiencia y ver cómo lo usas.\n\n'
+        f'Comparte tu reseña aquí: {feed_url}\n\n'
+        'Tu publicación será revisada por nuestro equipo antes de aparecer en la comunidad.\n\n'
+        'British Denim'
+    )
+    try:
+        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient])
+    except Exception:
+        messages.error(request, 'No fue posible enviar la invitación. Intenta nuevamente.')
+    else:
+        messages.success(request, f'Invitación enviada a {recipient} para el SKU {registration.sku.sku}.')
+    return redirect('consumer')
 
 # API VIEWS
 
