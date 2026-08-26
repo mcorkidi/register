@@ -43,12 +43,16 @@
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {% for user, skus in consumers.items %}
+                                    {% for consumer in consumers %}
                                     <tr>
-                                        <td>{{user}}</td>
-                                        <td>{{user.user_id.first_name}} {{user.user_id.last_name}}</td>
-                                        <td>{{user.country}}</td>
-                                        <td>{% for sku in skus %}{{sku}} {%endfor%} </td>
+                                        <td>{{ consumer.username }}</td>
+                                        <td>{{ consumer.full_name|default:'-' }}</td>
+                                        <td>{{ consumer.country }}</td>
+                                        <td>{% for sku in consumer.skus %}<span class="badge badge-secondary mr-1">{{ sku }}</span>{% endfor %}</td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="4" class="text-center text-muted">No hay consumidores con productos registrados.</td>
                                     </tr>
                                     {%endfor%} 
                                     

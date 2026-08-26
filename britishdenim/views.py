@@ -18,6 +18,7 @@ import json
 from django.views.decorators.cache import cache_page
 from django.http import HttpResponseForbidden
 from django.conf import settings
+from django.db.models import Count
 from ftplib import FTP, error_perm
 from urllib.parse import quote, urljoin
 from uuid import uuid4
@@ -169,7 +170,7 @@ def register(request, sku):
                 newScan = Scan(sku=item,where=where,when=when,country=country,city=city)
                 newScan.save()
                 # Redirect to Instagram profile
-                return redirect("https://www.instagram.com/britishdenimlatam/")
+                # return redirect("https://www.instagram.com/britishdenimlatam/")
 
         except:
             pass
@@ -333,28 +334,28 @@ def get_country_name(country_code):
 @cache_page(60 * 1440)
 @staff_member_required
 def stats(request):
-    scans = Scan.objects.all()
-    users = User.objects.all().filter()
-    items = Item.objects.all()
-    totalItems = items.count()
-    totalUsers = users.count()
-    totalScans = scans.count()
+    totalItems = Item.objects.count()
+    totalUsers = User.objects.count()
+    totalScans = Scan.objects.count()
+
     scansByCountry = {}
-    for scan in scans:
-        country = get_country_name(scan.country)
+    country_counts = Scan.objects.values('country').annotate(
+        scan_count=Count('id'),
+    ).order_by('-scan_count', 'country')
+    for scan in country_counts:
+        country = get_country_name(scan['country']) or scan['country'] or 'Unknown'
         if country in scansByCountry:
-            scansByCountry[country] += 1
+            scansByCountry[country] += scan['scan_count']
         else:
-            scansByCountry[country] = 1
-    
+            scansByCountry[country] = scan['scan_count']
     scansByCountry = dict(sorted(scansByCountry.items(), key=lambda x: x[1], reverse=True))
-    scansByItem = {}
-    for item in scans:
-        if item.sku.sku in scansByItem:
-            scansByItem[item.sku.sku] += 1 
-        else:
-            scansByItem[item.sku.sku] = 1
-    scansByItem = dict(sorted(scansByItem.items(), key=lambda x: x[1], reverse=True)[:20])
+
+    scansByItem = {
+        row['sku__sku']: row['scan_count']
+        for row in Scan.objects.values('sku__sku').annotate(
+            scan_count=Count('id'),
+        ).order_by('-scan_count', 'sku__sku')[:20]
+    }
     context = {'totalScans': totalScans, 
                'scansByCountry': scansByCountry,
                'totalUsers': totalUsers, 
@@ -366,98 +367,57 @@ def stats(request):
 @cache_page(60 * 1440)
 @staff_member_required
 def charts(request):
-    scans = Scan.objects.all()
-    scansLast12Months = {}
     today = datetime.now().date()
-    date_format = "%Y-%m-%d %H:%M:%S.%f"
-    aYearAgo = today -timedelta(days=30*12)
-# Chart for last 12 months of scans
-    for scan in scans:
-        try: 
-            dateScanned = datetime.strptime(scan.when, date_format)
-            monthYear = dateScanned.strftime("%m-%Y")
-           
-            if dateScanned.date() > aYearAgo:
-                if monthYear in scansLast12Months:
-                    scansLast12Months[monthYear] += 1
-                else:
-                    scansLast12Months[monthYear] = 1
-        except Exception as e:
-            pass
-    months = json.dumps(list(scansLast12Months.keys()))
-    values = json.dumps(list(scansLast12Months.values()))
+    twelve_months_ago = today - timedelta(days=30 * 12)
+    fifteen_days_ago = today - timedelta(days=15)
 
-#Charts for to 12 items scanned last 12 months
-    itemsDict = {}
-    today = datetime.now()
+    # Use fixed, chronological labels so charts include periods with no scans.
     last_12_months = []
+    for offset in range(11, -1, -1):
+        month_index = today.year * 12 + today.month - 1 - offset
+        year, month_index = divmod(month_index, 12)
+        last_12_months.append(f'{month_index + 1:02d}-{year}')
+    scansLast12Months = dict.fromkeys(last_12_months, 0)
 
-    for i in range(12):
-        month = today.month - i
-        year = today.year
+    last_15_days = [today - timedelta(days=offset) for offset in range(14, -1, -1)]
+    scansLast15Days = {
+        day.strftime('%d-%m-%Y'): 0
+        for day in last_15_days
+    }
+    item_monthly_counts = {}
+    item_scan_counts = {}
 
-        if month <= 0:
-            month += 12
-            year -= 1
-        month = '{:02d}'.format(month)
-        last_12_months.append(f'{month}-{year}')
-    for scan in scans:
-        try: 
-            dateScanned = datetime.strptime(scan.when, date_format)
-            monthYear = dateScanned.strftime("%m-%Y")
-            if dateScanned.date() > aYearAgo:
-                if scan.sku.sku in itemsDict:
-                    if monthYear in itemsDict[scan.sku.sku]:
-                        itemsDict[scan.sku.sku][monthYear] += 1
-                    else:
-                        itemsDict[scan.sku.sku][monthYear] = 1
-                else:
-                    itemsDict[scan.sku.sku] = {monthYear: 1}
-        except Exception as e:
-            print('error', e)
-            pass
-    top20Scaned = {}
-    for item in scans:
-        if datetime.strptime(item.when, date_format).date() > aYearAgo:
-            if item.sku.sku in top20Scaned:
-                top20Scaned[item.sku.sku] += 1 
-            else:
-                top20Scaned[item.sku.sku] = 1
-    top20Scaned = dict(sorted(top20Scaned.items(), key=lambda x: x[1], reverse=True)[:20])
+    # Stream only the fields needed by the charts and parse each timestamp once.
+    for scanned_when, sku in Scan.objects.values_list('when', 'sku__sku').iterator(chunk_size=2000):
+        try:
+            scanned_date = datetime.fromisoformat(scanned_when).date()
+        except (TypeError, ValueError):
+            continue
 
-    itemsWithMonthly = {}
-    for item in itemsDict:
-        if item in top20Scaned:
-            for month_year in last_12_months:
-                if item in itemsWithMonthly:
-                    itemsWithMonthly[item][month_year] = 0 
-                else:
-                    itemsWithMonthly[item]={month_year: 0}
+        if scanned_date > twelve_months_ago:
+            item_scan_counts[sku] = item_scan_counts.get(sku, 0) + 1
+            month_year = scanned_date.strftime('%m-%Y')
+            if month_year in scansLast12Months:
+                scansLast12Months[month_year] += 1
+                monthly_counts = item_monthly_counts.setdefault(
+                    sku,
+                    dict.fromkeys(last_12_months, 0),
+                )
+                monthly_counts[month_year] += 1
 
-    for item, value in itemsDict.items():
-        if item in top20Scaned:
-            for month_year, scan in value.items():
-                itemsWithMonthly[item][month_year] = scan
-        # else:
-        #     del itemsWithMonthly[item]
+        if scanned_date > fifteen_days_ago:
+            day_scan = scanned_date.strftime('%d-%m-%Y')
+            if day_scan in scansLast15Days:
+                scansLast15Days[day_scan] += 1
+
+    top_skus = sorted(item_scan_counts.items(), key=lambda row: (-row[1], row[0]))[:20]
+    itemsWithMonthly = {
+        sku: item_monthly_counts.get(sku, dict.fromkeys(last_12_months, 0))
+        for sku, _ in top_skus
+    }
+    months = json.dumps(last_12_months)
+    values = json.dumps(list(scansLast12Months.values()))
     itemsWithMonthlyJson = json.dumps(list(itemsWithMonthly.keys()))
-
-#Chart for last 2 weeks of scans
-    scansLast15Days = {}
-    today = datetime.now().date()
-    twoWeeksAgo = today -timedelta(days=15)
-    for scan in scans:
-        try: 
-            dateScanned = datetime.strptime(scan.when, date_format)
-            dayScan = dateScanned.strftime("%d-%m-%Y")
-           
-            if dateScanned.date() > twoWeeksAgo:
-                if dayScan in scansLast15Days:
-                    scansLast15Days[dayScan] += 1
-                else:
-                    scansLast15Days[dayScan] = 1
-        except Exception as e:
-            pass
     days = json.dumps(list(scansLast15Days.keys()))
     day_values = json.dumps(list(scansLast15Days.values()))
 
@@ -470,20 +430,37 @@ def charts(request):
 
 @staff_member_required()
 def consumer(request):
-    consumer = Consumer.objects.all().order_by('country')
-    consumers = {}
-   
-    for c in consumer:
-        
-        if c.user_id.username in consumers:
-            print("1", c.sku.sku)
-            consumers[c.user_id.username].append(c.sku.sku)
-        else:
-            consumers[c.user_id.username] = [c.sku.sku]
-            
-    print(consumers.keys())
-    count = consumer.count()
-    context = {'consumers':consumers, 'count':count}
+    consumer_rows = Consumer.objects.order_by(
+        'country', 'user_id__username', 'sku__sku',
+    ).values_list(
+        'user_id__username',
+        'user_id__first_name',
+        'user_id__last_name',
+        'country',
+        'sku__sku',
+    )
+    consumers_by_username = {}
+    for username, first_name, last_name, country, sku in consumer_rows.iterator(chunk_size=2000):
+        consumer = consumers_by_username.setdefault(
+            username,
+            {
+                'username': username,
+                'full_name': f'{first_name} {last_name}'.strip(),
+                'countries': set(),
+                'skus': set(),
+            },
+        )
+        if country:
+            consumer['countries'].add(country)
+        consumer['skus'].add(sku)
+
+    consumers = []
+    for consumer in consumers_by_username.values():
+        consumer['country'] = ', '.join(sorted(consumer.pop('countries'))) or 'Unknown'
+        consumer['skus'] = sorted(consumer['skus'])
+        consumers.append(consumer)
+
+    context = {'consumers': consumers, 'count': len(consumers)}
     return render(request, 'britishdenim/consumer.html', context)
 
 # API VIEWS
