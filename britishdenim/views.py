@@ -291,7 +291,9 @@ def skuFeed(request, sku):
                     )
         return redirect('sku_feed', sku=item.sku)
 
-    posts = skuPost.objects.filter(sku=item, is_approved=True).prefetch_related('likepost_set')
+    posts = skuPost.objects.filter(sku=item, is_approved=True).select_related(
+        'user_id__profile',
+    ).prefetch_related('likepost_set')
     for post in posts:
         try:
             post.images = json.loads(post.imageList) if post.imageList else []
@@ -300,6 +302,10 @@ def skuFeed(request, sku):
         post.likes = list(post.likepost_set.all())
         post.like_count = len(post.likes)
         post.liked_by_current_user = any(like.user_id_id == request.user.id for like in post.likes)
+        try:
+            post.profile_image_url = post.user_id.profile.image_url
+        except Profile.DoesNotExist:
+            post.profile_image_url = ''
     context = {'posts': posts, 'sku': item}
     return render(request, 'britishdenim/sku_feed.html', context)
 
@@ -543,4 +549,3 @@ class LoggedInUser(viewsets.GenericViewSet,
         """
         
         return Response(self.serializer_class(self.request.user, many=False).data)
-

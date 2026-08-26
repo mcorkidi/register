@@ -29,6 +29,7 @@ class Profile(models.Model):
     ig_link = models.URLField(max_length=500, blank=True, null=True)
     fb_link = models.URLField(max_length=500, blank=True, null=True)
     tw_link = models.URLField(max_length=500, blank=True, null=True)
+    image_url = models.URLField(max_length=500, blank=True, default='')
 
 
 

@@ -25,6 +25,7 @@
         text-transform: uppercase;
         width: 42px;
     }
+    .post-avatar-image { border-radius: 50%; height: 42px; object-fit: cover; width: 42px; }
     .post-author { color: #212529; font-weight: 700; }
     .post-date { color: #8b8b8b; font-size: .8rem; }
     .post-text { color: #414141; line-height: 1.65; white-space: pre-line; }
@@ -68,7 +69,11 @@
             <article class="card sku-post-card mb-4">
                 <div class="card-body">
                     <header class="d-flex align-items-center mb-3">
+                        {% if post.profile_image_url %}
+                        <img src="{{ post.profile_image_url }}" alt="Foto de {{ post.user_id }}" class="post-avatar-image mr-3">
+                        {% else %}
                         <div class="post-avatar mr-3">{{ post.user_id.username|slice:":1" }}</div>
+                        {% endif %}
                         <div>
                             <div class="post-author">{{ post.user_id }}</div>
                             <div class="post-date">{{ post.creationDate|date:"d M Y · H:i" }}</div>

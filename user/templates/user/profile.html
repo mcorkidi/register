@@ -13,10 +13,14 @@
                     <div class="d-flex justify-content-end">
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>   
-                            <form method="post">
+                            <form method="post" enctype="multipart/form-data">
                                 {% csrf_token %}
                                 <h2>Editar Perfil</h2>
                                 <div class="row">
+                                    <div class="col-12 mb-3">
+                                        <label for="profileImage">Foto de perfil (JPG, PNG, GIF o WebP; máximo 5 MB)</label>
+                                        <input type="file" class="form-control-file" id="profileImage" name="profile_image" accept="image/jpeg,image/png,image/gif,image/webp">
+                                    </div>
                                     <div class="input-group mb-3">
                                         <span class="input-group-text" id="inputGroup-sizing-default">Usuario</span>
                                         <input type="text" name="username" value="{{ user.username }}" class="form-control" aria-label="Sizing example input" aria-describedby="inputGroup-sizing-default">
@@ -102,7 +106,7 @@
             <div class="col-lg-4">
                 <div class="card mb-4">
                     <div class="card-body text-center">
-                    <img src="https://mdbcdn.b-cdn.net/img/Photos/new-templates/bootstrap-chat/ava3.webp" alt="avatar"
+                    <img src="{% if profile.image_url %}{{ profile.image_url }}{% else %}https://mdbcdn.b-cdn.net/img/Photos/new-templates/bootstrap-chat/ava3.webp{% endif %}" alt="Foto de perfil de {{ user.username }}"
                         class="rounded-circle img-fluid" style="width: 150px;">
                     <h5 class="my-3">{{ user.first_name}} {{user.last_name}}</h5>
                     <p class="text-muted mb-1">British Denim Fan</p>
