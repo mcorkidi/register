@@ -71,6 +71,20 @@
                                     </div>
                                 </div>
                                 <div class="row">
+                                    <div class="input-group mb-3">
+                                        <span class="input-group-text"><i class="fab fa-instagram"></i></span>
+                                        <input type="url" name="ig_link" value="{{ profile.ig_link|default_if_none:'' }}" class="form-control" placeholder="https://instagram.com/tu_usuario">
+                                    </div>
+                                    <div class="input-group mb-3">
+                                        <span class="input-group-text"><i class="fab fa-facebook-f"></i></span>
+                                        <input type="url" name="fb_link" value="{{ profile.fb_link|default_if_none:'' }}" class="form-control" placeholder="https://facebook.com/tu_perfil">
+                                    </div>
+                                    <div class="input-group mb-3">
+                                        <span class="input-group-text"><i class="fab fa-twitter"></i></span>
+                                        <input type="url" name="tw_link" value="{{ profile.tw_link|default_if_none:'' }}" class="form-control" placeholder="https://twitter.com/tu_usuario">
+                                    </div>
+                                </div>
+                                <div class="row">
                                     <div class="col-lg-6">
                                         <div class="input-group mb-3">
                                             <span class="input-group-text" id="inputGroup-sizing-default">Direccion</span>
@@ -124,26 +138,26 @@
                         
                         <li class="list-group-item d-flex justify-content-between align-items-center p-3">
                         <i class="fab fa-twitter fa-lg" style="color: #55acee;"></i>
-                        {% if profile.tw_link == None %}
-                        None 
+                        {% if profile.tw_link %}
+                        <a href="{{profile.tw_link}}" target="_blank" rel="noopener noreferrer"><p class="mb-0">Twitter</p></a>
                         {%else%} 
-                        <a href="{{profile.tw_link}}" target="_blank" rel="noopener noreferrer"><p class="mb-0">{{profile.tw_link}}</p></a>
+                        <span class="text-muted">No agregado</span>
                         {%endif%} 
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center p-3">
                         <i class="fab fa-instagram fa-lg" style="color: #ac2bac;"></i>
-                        {% if profile.ig_link == None %}
-                        None 
+                        {% if profile.ig_link %}
+                        <a href="{{profile.ig_link}}" target="_blank" rel="noopener noreferrer"><p class="mb-0">Instagram</p></a>
                         {%else%} 
-                        <a href="{{profile.ig_link}}" target="_blank" rel="noopener noreferrer"><p class="mb-0">{{profile.ig_link}}</p></a>
+                        <span class="text-muted">No agregado</span>
                         {%endif%}
                         </li>
                         <li class="list-group-item d-flex justify-content-between align-items-center p-3">
                         <i class="fab fa-facebook-f fa-lg" style="color: #3b5998;"></i>
-                        {% if profile.fb_link == None %}
-                        None 
+                        {% if profile.fb_link %}
+                        <a href="{{profile.fb_link}}" target="_blank" rel="noopener noreferrer"><p class="mb-0">Facebook</p></a>
                         {%else%} 
-                        <a href="{{profile.fb_link}}" target="_blank" rel="noopener noreferrer"><p class="mb-0">{{profile.fb_link}}</p></a>
+                        <span class="text-muted">No agregado</span>
                         {%endif%} 
                         </li>
                     </ul>

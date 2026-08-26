@@ -44,3 +44,29 @@ class ProfileImageTests(TestCase):
             'https://www.ketengostorage.com/profile-images/1/profile.jpg',
         )
         upload_profile_image.assert_called_once()
+
+    def test_social_links_are_saved_from_profile_form(self):
+        self.client.post(
+            reverse('profile'),
+            {
+                'edit': '1',
+                'username': 'fan',
+                'email': '',
+                'password': '',
+                'password1': '',
+                'first_name': '',
+                'last_name': '',
+                'telephone': '',
+                'movil': '',
+                'direccion': '',
+                'pais': 'Selecciona...',
+                'ig_link': 'https://instagram.com/britishdenim',
+                'fb_link': 'https://facebook.com/britishdenim',
+                'tw_link': 'https://twitter.com/britishdenim',
+            },
+        )
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.ig_link, 'https://instagram.com/britishdenim')
+        self.assertEqual(self.profile.fb_link, 'https://facebook.com/britishdenim')
+        self.assertEqual(self.profile.tw_link, 'https://twitter.com/britishdenim')

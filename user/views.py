@@ -7,6 +7,8 @@ from django.contrib.auth import authenticate, login
 from django.views import View
 from django.contrib.auth.models import User
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from ftplib import FTP, error_perm
 from urllib.parse import quote, urljoin
 from uuid import uuid4
@@ -69,6 +71,28 @@ def save_profile_image(request, profile, image_file):
         return False
     return True
 
+
+def get_social_links(request):
+    validator = URLValidator(schemes=['http', 'https'])
+    social_fields = {
+        'ig_link': 'Instagram',
+        'fb_link': 'Facebook',
+        'tw_link': 'Twitter',
+    }
+    links = {}
+    for field, network in social_fields.items():
+        value = request.POST.get(field, '').strip()
+        if not value:
+            links[field] = ''
+            continue
+        try:
+            validator(value)
+        except ValidationError:
+            messages.error(request, f'El enlace de {network} debe iniciar con http:// o https://.')
+            return None
+        links[field] = value
+    return links
+
 @login_required
 def profile(request):
 
@@ -79,6 +103,15 @@ def profile(request):
     if request.method == 'POST':
         if 'edit' in request.POST:
             profile_image = request.FILES.get('profile_image')
+            social_links = get_social_links(request)
+            if social_links is None:
+                context = {
+                    'items': items,
+                    'consumer': consumer,
+                    'profile': profile,
+                    'profileModel': profileModel,
+                }
+                return render(request, 'user/profile.html', context)
             username = request.POST.get('username')
             email =request.POST.get('email')
             password = request.POST.get('password')
@@ -104,6 +137,9 @@ def profile(request):
                     if location != 'Selecciona...':
                         editProfile.location = location
                     editProfile.direccion = direccion
+                    editProfile.ig_link = social_links['ig_link']
+                    editProfile.fb_link = social_links['fb_link']
+                    editProfile.tw_link = social_links['tw_link']
                     editProfile.save()
                     profile = editProfile
                     save_profile_image(request, profile, profile_image)
@@ -114,6 +150,7 @@ def profile(request):
                                                         movil = movil,
                                                         location = location,
                                                         direccion = direccion,
+                                                        **social_links,
                                                         )
                     newProfile.save()
                     profile = newProfile
@@ -131,6 +168,9 @@ def profile(request):
                     editUser.save()
                     editProfile = Profile.objects.get(user=editUser)
                     editProfile.telephone = telephone
+                    editProfile.ig_link = social_links['ig_link']
+                    editProfile.fb_link = social_links['fb_link']
+                    editProfile.tw_link = social_links['tw_link']
                     
                     editProfile.save()
                     profile = editProfile
