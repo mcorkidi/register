@@ -52,6 +52,9 @@ urlpatterns = [
     path('charts/', views.charts, name= 'charts'),
     path('consumer/', views.consumer, name= 'consumer'),
     path('consumer/<int:consumer_id>/invite/', views.invite_consumer_to_post, name='invite_consumer_to_post'),
+    path('consumer/invite-all/start/', views.start_post_invite_campaign, name='start_post_invite_campaign'),
+    path('consumer/invite-all/<int:campaign_id>/next/', views.process_next_post_invite, name='process_next_post_invite'),
+    path('consumer/invite-all/<int:campaign_id>/cancel/', views.cancel_post_invite_campaign, name='cancel_post_invite_campaign'),
     path('doc', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
 ]
 

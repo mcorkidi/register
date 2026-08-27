@@ -53,9 +53,45 @@ class Consumer(models.Model):
     country = models.CharField(max_length=100, default="")
     city = models.CharField(max_length=100, default="")
     getInfo = models.BooleanField(default = True)
+    post_invitation_sent_at = models.DateTimeField(blank=True, null=True)
 
     # def __str__(self):
     #     return self.sku
+
+
+class PostInviteCampaign(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = 'active', 'Active'
+        CANCELLED = 'cancelled', 'Cancelled'
+        COMPLETED = 'completed', 'Completed'
+
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_email_at = models.DateTimeField(blank=True, null=True)
+
+
+class PostInviteCampaignItem(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        SENT = 'sent', 'Sent'
+        SKIPPED_SENT = 'skipped_sent', 'Skipped: already invited'
+        SKIPPED_APPROVED = 'skipped_approved', 'Skipped: post approved'
+        SKIPPED_NO_EMAIL = 'skipped_no_email', 'Skipped: no email'
+        FAILED = 'failed', 'Failed'
+
+    campaign = models.ForeignKey(PostInviteCampaign, on_delete=models.CASCADE, related_name='items')
+    registration = models.ForeignKey(Consumer, on_delete=models.CASCADE)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.PENDING)
+    processed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=('campaign', 'registration'),
+                name='unique_campaign_registration',
+            ),
+        ]
     
 class Scan(models.Model):
     sku = models.ForeignKey(Item,on_delete=models.CASCADE)

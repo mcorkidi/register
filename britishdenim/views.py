@@ -16,9 +16,12 @@ from .serializers import ItemSerializer, LoginSerializer, LogoutSerializer
 import pycountry
 import json
 from django.views.decorators.cache import cache_page
-from django.http import HttpResponseForbidden
+from django.http import HttpResponseForbidden, JsonResponse
 from django.conf import settings
 from django.db.models import Count
+from django.db import transaction
+from django.utils import timezone
+from django.views.decorators.http import require_POST
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.templatetags.static import static
@@ -163,7 +166,9 @@ def register(request, sku):
                 return redirect('register', sku=sku)
             newConsumer = Consumer(user_id=user,sku=item, where=where,when=when,country=country,city=city,getInfo=getInfo )
             newConsumer.save()
-            send_sku_post_invitation(request, user, item)
+            if send_sku_post_invitation(request, user, item):
+                newConsumer.post_invitation_sent_at = timezone.now()
+                newConsumer.save(update_fields=['post_invitation_sent_at'])
             messages.success(request, f"Producto {item.sku} {item.name} registrado exitosamente a tu perfil. ")
             return redirect('sku_feed', sku=item.sku)
             
@@ -182,7 +187,9 @@ def register(request, sku):
                     return redirect('register', sku=sku)
                 newConsumer = Consumer(user_id=request.user,sku=item, where=where,when=when,country=country,city=city )
                 newConsumer.save()
-                send_sku_post_invitation(request, request.user, item)
+                if send_sku_post_invitation(request, request.user, item):
+                    newConsumer.post_invitation_sent_at = timezone.now()
+                    newConsumer.save(update_fields=['post_invitation_sent_at'])
                 messages.success(request, f'Bienvenido {auth.first_name}. Gracias por registrar un producto.')
                 return redirect('sku_feed', sku=item.sku)
             else:
@@ -199,7 +206,9 @@ def register(request, sku):
                 return redirect('register', sku=sku)
             newConsumer = Consumer(user_id=request.user,sku=item, where=where,when=when,country=country,city=city)
             newConsumer.save()
-            send_sku_post_invitation(request, request.user, item)
+            if send_sku_post_invitation(request, request.user, item):
+                newConsumer.post_invitation_sent_at = timezone.now()
+                newConsumer.save(update_fields=['post_invitation_sent_at'])
             messages.success(request, f"Producto {item.sku} {item.name} registrado exitosamente a tu perfil. ")
             return redirect('sku_feed', sku=item.sku)
 
@@ -530,8 +539,117 @@ def consumer(request):
         consumer['skus'] = sorted(consumer['skus'])
         consumers.append(consumer)
 
-    context = {'consumers': consumers, 'count': len(consumers)}
+    active_campaign = PostInviteCampaign.objects.filter(
+        status=PostInviteCampaign.Status.ACTIVE,
+    ).order_by('-created_at').first()
+    context = {
+        'consumers': consumers,
+        'count': len(consumers),
+        'active_campaign': active_campaign,
+    }
     return render(request, 'britishdenim/consumer.html', context)
+
+
+def campaign_progress(campaign):
+    counts = {
+        row['status']: row['total']
+        for row in campaign.items.values('status').annotate(total=Count('id'))
+    }
+    total = sum(counts.values())
+    return {
+        'campaign_id': campaign.pk,
+        'status': campaign.status,
+        'total': total,
+        'pending': counts.get(PostInviteCampaignItem.Status.PENDING, 0),
+        'sent': counts.get(PostInviteCampaignItem.Status.SENT, 0),
+        'skipped': (
+            counts.get(PostInviteCampaignItem.Status.SKIPPED_SENT, 0)
+            + counts.get(PostInviteCampaignItem.Status.SKIPPED_APPROVED, 0)
+            + counts.get(PostInviteCampaignItem.Status.SKIPPED_NO_EMAIL, 0)
+        ),
+        'failed': counts.get(PostInviteCampaignItem.Status.FAILED, 0),
+    }
+
+
+@require_POST
+@staff_member_required
+def start_post_invite_campaign(request):
+    existing_campaign = PostInviteCampaign.objects.filter(
+        status=PostInviteCampaign.Status.ACTIVE,
+    ).order_by('-created_at').first()
+    if existing_campaign:
+        return JsonResponse(campaign_progress(existing_campaign))
+
+    campaign = PostInviteCampaign.objects.create(created_by=request.user)
+    items = [
+        PostInviteCampaignItem(campaign=campaign, registration=registration)
+        for registration in Consumer.objects.all().only('id').iterator(chunk_size=2000)
+    ]
+    PostInviteCampaignItem.objects.bulk_create(items, batch_size=1000)
+    return JsonResponse(campaign_progress(campaign), status=201)
+
+
+@require_POST
+@staff_member_required
+def process_next_post_invite(request, campaign_id):
+    with transaction.atomic():
+        campaign = PostInviteCampaign.objects.select_for_update().get(pk=campaign_id)
+        if campaign.status != PostInviteCampaign.Status.ACTIVE:
+            return JsonResponse(campaign_progress(campaign))
+
+        if campaign.last_email_at:
+            elapsed = (timezone.now() - campaign.last_email_at).total_seconds()
+            if elapsed < 10:
+                progress = campaign_progress(campaign)
+                progress['next_delay'] = max(1, int(10 - elapsed))
+                return JsonResponse(progress)
+
+        item = campaign.items.select_for_update().filter(
+            status=PostInviteCampaignItem.Status.PENDING,
+        ).select_related('registration__user_id', 'registration__sku').order_by('pk').first()
+        if not item:
+            campaign.status = PostInviteCampaign.Status.COMPLETED
+            campaign.save(update_fields=['status'])
+            return JsonResponse(campaign_progress(campaign))
+
+        registration = item.registration
+        now = timezone.now()
+        if registration.post_invitation_sent_at:
+            item.status = PostInviteCampaignItem.Status.SKIPPED_SENT
+        elif not registration.user_id.email:
+            item.status = PostInviteCampaignItem.Status.SKIPPED_NO_EMAIL
+        elif skuPost.objects.filter(
+            sku=registration.sku,
+            user_id=registration.user_id,
+            is_approved=True,
+        ).exists():
+            item.status = PostInviteCampaignItem.Status.SKIPPED_APPROVED
+        elif send_sku_post_invitation(request, registration.user_id, registration.sku):
+            item.status = PostInviteCampaignItem.Status.SENT
+            registration.post_invitation_sent_at = now
+            registration.save(update_fields=['post_invitation_sent_at'])
+            campaign.last_email_at = now
+            campaign.save(update_fields=['last_email_at'])
+        else:
+            item.status = PostInviteCampaignItem.Status.FAILED
+        item.processed_at = now
+        item.save(update_fields=['status', 'processed_at'])
+
+        progress = campaign_progress(campaign)
+        progress['next_delay'] = 10 if item.status == PostInviteCampaignItem.Status.SENT else 0
+        progress['last_status'] = item.status
+        progress['last_sku'] = registration.sku.sku
+        return JsonResponse(progress)
+
+
+@require_POST
+@staff_member_required
+def cancel_post_invite_campaign(request, campaign_id):
+    campaign = get_object_or_404(PostInviteCampaign, pk=campaign_id)
+    if campaign.status == PostInviteCampaign.Status.ACTIVE:
+        campaign.status = PostInviteCampaign.Status.CANCELLED
+        campaign.save(update_fields=['status'])
+    return JsonResponse(campaign_progress(campaign))
 
 
 @staff_member_required
@@ -546,10 +664,22 @@ def invite_consumer_to_post(request, consumer_id):
     if not registration.user_id.email:
         messages.error(request, 'Este consumidor no tiene un correo electrónico registrado.')
         return redirect('consumer')
+    if registration.post_invitation_sent_at:
+        messages.info(request, 'La invitación para este SKU ya fue enviada correctamente.')
+        return redirect('consumer')
+    if skuPost.objects.filter(
+        sku=registration.sku,
+        user_id=registration.user_id,
+        is_approved=True,
+    ).exists():
+        messages.info(request, 'Este consumidor ya tiene una publicación aprobada para este SKU.')
+        return redirect('consumer')
 
     if not send_sku_post_invitation(request, registration.user_id, registration.sku):
         messages.error(request, 'No fue posible enviar la invitación. Intenta nuevamente.')
     else:
+        registration.post_invitation_sent_at = timezone.now()
+        registration.save(update_fields=['post_invitation_sent_at'])
         messages.success(
             request,
             f'Invitación enviada a {registration.user_id.email} para el SKU {registration.sku.sku}.',

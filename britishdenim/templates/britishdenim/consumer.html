@@ -18,7 +18,16 @@
         </li>
     </ul>
     <br>
- 
+    <div class="card mb-4" id="invite-campaign" data-active-campaign="{% if active_campaign %}{{ active_campaign.id }}{% endif %}" data-start-url="{% url 'start_post_invite_campaign' %}" data-next-url="{% url 'process_next_post_invite' campaign_id=0 %}" data-cancel-url="{% url 'cancel_post_invite_campaign' campaign_id=0 %}">
+        <div class="card-body d-flex flex-wrap align-items-center">
+            <div class="mr-auto mb-2 mb-md-0">
+                <h5 class="mb-1">Invitar a todos a publicar</h5>
+                <p class="text-muted mb-0" id="campaign-progress">Envía una invitación cada 10 segundos. Las invitaciones enviadas y publicaciones ya aprobadas se omiten.</p>
+            </div>
+            <button type="button" id="start-campaign" class="btn btn-primary mr-2">Iniciar invitaciones</button>
+            <button type="button" id="cancel-campaign" class="btn btn-outline-danger" disabled>Cancelar</button>
+        </div>
+    </div>
       
   
 
@@ -74,5 +83,81 @@
         </div>
 
 </div>
+
+<script>
+    (function () {
+        const campaignElement = document.getElementById('invite-campaign');
+        const startButton = document.getElementById('start-campaign');
+        const cancelButton = document.getElementById('cancel-campaign');
+        const progressElement = document.getElementById('campaign-progress');
+        let campaignId = campaignElement.dataset.activeCampaign || null;
+        let timer = null;
+
+        function csrfToken() {
+            const cookie = document.cookie.split('; ').find(row => row.startsWith('csrftoken='));
+            return cookie ? decodeURIComponent(cookie.split('=')[1]) : '';
+        }
+
+        function campaignUrl(template, id) {
+            return template.replace('/0/', `/${id}/`);
+        }
+
+        function updateProgress(data) {
+            const lastEvent = data.last_status ? ` Último SKU ${data.last_sku}: ${data.last_status}.` : '';
+            progressElement.textContent = `Estado: ${data.status}. Enviados: ${data.sent}; omitidos: ${data.skipped}; fallidos: ${data.failed}; pendientes: ${data.pending} de ${data.total}.${lastEvent}`;
+            const active = data.status === 'active';
+            startButton.disabled = active;
+            cancelButton.disabled = !active;
+        }
+
+        async function request(url) {
+            const response = await fetch(url, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {'X-CSRFToken': csrfToken()},
+            });
+            if (!response.ok) throw new Error('No se pudo actualizar la campaña.');
+            return response.json();
+        }
+
+        async function processNext() {
+            if (!campaignId) return;
+            try {
+                const data = await request(campaignUrl(campaignElement.dataset.nextUrl, campaignId));
+                updateProgress(data);
+                if (data.status === 'active') {
+                    timer = window.setTimeout(processNext, (data.next_delay || 0) * 1000);
+                }
+            } catch (error) {
+                progressElement.textContent = error.message;
+                startButton.disabled = false;
+            }
+        }
+
+        startButton.addEventListener('click', async function () {
+            try {
+                const data = await request(campaignElement.dataset.startUrl);
+                campaignId = data.campaign_id;
+                updateProgress(data);
+                processNext();
+            } catch (error) {
+                progressElement.textContent = error.message;
+            }
+        });
+
+        cancelButton.addEventListener('click', async function () {
+            if (!campaignId) return;
+            window.clearTimeout(timer);
+            try {
+                const data = await request(campaignUrl(campaignElement.dataset.cancelUrl, campaignId));
+                updateProgress(data);
+            } catch (error) {
+                progressElement.textContent = error.message;
+            }
+        });
+
+        if (campaignId) processNext();
+    }());
+</script>
 
 {% endblock %}

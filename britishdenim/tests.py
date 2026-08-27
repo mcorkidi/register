@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.urls import reverse
 from unittest.mock import patch
 
-from .models import Consumer, Item, Scan, skuPost
+from .models import Consumer, Item, PostInviteCampaign, Scan, skuPost
 from user.models import Profile
 
 class SkuFeedTests(TestCase):
@@ -203,6 +203,26 @@ class ConsumerTests(TestCase):
         self.assertRedirects(response, reverse('sku_feed', kwargs={'sku': item.sku}))
         self.assertTrue(Consumer.objects.filter(user_id=user, sku=item).exists())
         email_mock.return_value.send.assert_called_once()
+
+    @patch('britishdenim.views.send_sku_post_invitation', return_value=True)
+    def test_campaign_sends_one_pending_invitation_and_records_it(self, invitation_mock):
+        staff_user = User.objects.create_superuser('campaign-admin', 'campaign@example.com', 'password')
+        customer = User.objects.create_user('campaign-user', 'campaign-user@example.com', 'password')
+        item = Item.objects.create(sku='BD-700', name='Denim Jeans')
+        registration = Consumer.objects.create(user_id=customer, sku=item)
+        self.client.force_login(staff_user)
+
+        start_response = self.client.post(reverse('start_post_invite_campaign'))
+        campaign_id = start_response.json()['campaign_id']
+        response = self.client.post(
+            reverse('process_next_post_invite', kwargs={'campaign_id': campaign_id}),
+        )
+
+        registration.refresh_from_db()
+        self.assertEqual(response.json()['sent'], 1)
+        self.assertIsNotNone(registration.post_invitation_sent_at)
+        self.assertEqual(PostInviteCampaign.objects.get(pk=campaign_id).status, 'active')
+        invitation_mock.assert_called_once()
 
 
 class PrivacyPolicyTests(TestCase):
