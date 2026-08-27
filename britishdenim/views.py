@@ -19,7 +19,9 @@ from django.views.decorators.cache import cache_page
 from django.http import HttpResponseForbidden
 from django.conf import settings
 from django.db.models import Count
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
+from django.template.loader import render_to_string
+from django.templatetags.static import static
 from django.urls import reverse
 from django.contrib.auth.views import redirect_to_login
 from ftplib import FTP, error_perm
@@ -509,8 +511,20 @@ def invite_consumer_to_post(request, consumer_id):
         'Tu publicación será revisada por nuestro equipo antes de aparecer en la comunidad.\n\n'
         'British Denim'
     )
+    html_message = render_to_string(
+        'britishdenim/emails/invite_to_post.html',
+        {
+            'first_name': first_name,
+            'sku': registration.sku.sku,
+            'product_name': registration.sku.name,
+            'feed_url': feed_url,
+            'logo_url': request.build_absolute_uri(static('britishdenim/images/logo.png')),
+        },
+    )
     try:
-        send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient])
+        email = EmailMultiAlternatives(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient])
+        email.attach_alternative(html_message, 'text/html')
+        email.send()
     except Exception as e:
         print(f'Error sending email to {recipient}: {e}')
         messages.error(request, 'No fue posible enviar la invitación. Intenta nuevamente.')
