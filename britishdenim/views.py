@@ -330,6 +330,14 @@ def contact(request):
 
     return render(request, 'britishdenim/contact.html')
 
+
+def privacy_policy(request):
+    return render(request, 'britishdenim/privacy_policy.html')
+
+
+def terms_and_conditions(request):
+    return render(request, 'britishdenim/terms_and_conditions.html')
+
 @login_required
 def rewards(request):
 

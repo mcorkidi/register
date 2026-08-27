@@ -165,3 +165,17 @@ class ConsumerTests(TestCase):
         self.assertEqual(recipients, ['reviewer@example.com'])
         email_mock.return_value.attach_alternative.assert_called_once()
         email_mock.return_value.send.assert_called_once()
+
+
+class PrivacyPolicyTests(TestCase):
+    def test_privacy_policy_is_publicly_available(self):
+        response = self.client.get(reverse('privacy_policy'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Política de Privacidad')
+
+    def test_terms_and_conditions_are_publicly_available(self):
+        response = self.client.get(reverse('terms_and_conditions'))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Términos y Condiciones de Uso')
