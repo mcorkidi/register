@@ -8,12 +8,14 @@ from django.urls import reverse
 from unittest.mock import patch
 
 from .models import Consumer, Item, Scan, skuPost
+from user.models import Profile
 
 class SkuFeedTests(TestCase):
     def setUp(self):
         self.item = Item.objects.create(sku='BD-001', name='Denim Jacket')
         self.owner = User.objects.create_user('owner', password='password')
         self.other_user = User.objects.create_user('other', password='password')
+        Profile.objects.create(user=self.owner, location='PA')
         Consumer.objects.create(user_id=self.owner, sku=self.item)
         self.url = reverse('sku_feed', kwargs={'sku': self.item.sku})
 
@@ -27,10 +29,15 @@ class SkuFeedTests(TestCase):
     def test_registered_user_comment_is_pending_and_not_displayed(self):
         self.client.force_login(self.owner)
 
-        response = self.client.post(self.url, {'text': 'Great jacket!'}, follow=True)
+        response = self.client.post(
+            self.url,
+            {'text': 'Great jacket!'},
+            follow=True,
+        )
 
         post = skuPost.objects.get()
         self.assertFalse(post.is_approved)
+        self.assertEqual(post.location, 'PA')
         self.assertContains(response, 'será publicado')
         self.assertNotContains(response, 'Great jacket!')
 

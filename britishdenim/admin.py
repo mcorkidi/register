@@ -4,7 +4,8 @@ from .models import *
 
 class ItemAdmin(admin.ModelAdmin):
 
-    list_display = ('sku', 'name')
+    list_display = ('sku', 'name', 'creationDate')
+    search_fields = ['sku']
 
 
 class ConsumerAdmin(admin.ModelAdmin):
@@ -25,7 +26,7 @@ def approve_comments(modeladmin, request, queryset):
 
 
 class SkuPostAdmin(admin.ModelAdmin):
-    list_display = ('sku', 'user_id', 'text', 'creationDate', 'is_approved')
+    list_display = ('sku', 'user_id', 'text', 'location', 'creationDate', 'is_approved')
     list_filter = ('is_approved', 'creationDate')
     search_fields = ('sku__sku', 'user_id__username', 'text')
     actions = (approve_comments,)

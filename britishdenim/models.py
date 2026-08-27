@@ -18,6 +18,7 @@ class skuPost(models.Model):
     sku = models.ForeignKey(Item, on_delete=models.CASCADE)
     user_id = models.ForeignKey(User, on_delete=models.CASCADE, default=1)
     text = models.TextField(max_length=280, blank=True)
+    location = models.CharField(max_length=100, blank=True)
     creationDate = models.DateTimeField(auto_now_add=True)
     imageList = models.CharField(max_length=500, blank=True)
     is_approved = models.BooleanField(default=False)

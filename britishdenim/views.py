@@ -37,9 +37,9 @@ def ipInfo(addr=''):
     #response from url(if res==None then check connection)
     data = load(res)
     #will load the json response into data
-    for attr in data.keys():
+    # for attr in data.keys():
         #will print the data line by line
-        print(attr,' '*13+'\t->\t',data[attr])
+        # print(attr,' '*13+'\t->\t',data[attr])
     return data
 
 
@@ -57,14 +57,14 @@ def register(request, sku):
             ip = request.META.get('REMOTE_ADDR')
         return ip
     ip = get_client_ip(request)
-    print(ip)
+    # print(ip)
     try: 
         ipCall = ipInfo(ip)
    
         items = Item.objects.all()
         try: 
             if ipCall['bogon'] ==True:
-                print("Invalid IP")
+                # print("Invalid IP")
                 city = 'City'
                 where = 'NotDetected'   
                 country = 'NotDetected'
@@ -77,13 +77,14 @@ def register(request, sku):
             where = ipCall['region']   
             country = ipCall['country']
     except:
-        print('error getting ip')
+        # print('error getting ip')
+        pass
     when = datetime.now()
 
     if request.method == 'POST':
         if "newUser" in request.POST:
-            print(request.POST)
-            print(ipCall)
+            # print(request.POST)
+            # print(ipCall)
             registeredSku = request.POST.get('inputSku',"")
             email = request.POST.get('email',"")
             username = email 
@@ -146,7 +147,7 @@ def register(request, sku):
                 return redirect('register', sku=sku)
             
         if "regProd" in request.POST:
-            print("sku is,",sku)
+            # print("sku is,",sku)
             registeredSku = request.POST.get('inputSku',"")
             try:
                 item=items.get(sku=registeredSku)
@@ -257,6 +258,10 @@ def skuFeed(request, sku):
             return redirect('sku_feed', sku=item.sku)
 
         text = request.POST.get('text', '').strip()
+        try:
+            location = request.user.profile.location
+        except Profile.DoesNotExist:
+            location = ''
         image_files = request.FILES.getlist('images')
 
         if not text and not image_files:
@@ -286,6 +291,7 @@ def skuFeed(request, sku):
                         sku=item,
                         user_id=request.user,
                         text=text,
+                        location=location,
                         imageList=json.dumps(image_urls),
                     )
                     messages.success(
@@ -500,7 +506,8 @@ def invite_consumer_to_post(request, consumer_id):
     )
     try:
         send_mail(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient])
-    except Exception:
+    except Exception as e:
+        print(f'Error sending email to {recipient}: {e}')
         messages.error(request, 'No fue posible enviar la invitación. Intenta nuevamente.')
     else:
         messages.success(request, f'Invitación enviada a {recipient} para el SKU {registration.sku.sku}.')

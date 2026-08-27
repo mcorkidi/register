@@ -75,7 +75,7 @@
                         <div class="post-avatar mr-3">{{ post.user_id.username|slice:":1" }}</div>
                         {% endif %}
                         <div>
-                            <div class="post-author">{{ post.user_id }}</div>
+                            <div class="post-author">{{ post.user_id.first_name|default:post.user_id.username }}{% if post.location %} · <span class="font-weight-normal">{{ post.location }}</span>{% endif %}</div>
                             <div class="post-date">{{ post.creationDate|date:"d M Y · H:i" }}</div>
                         </div>
                     </header>
@@ -83,9 +83,9 @@
                     {% if post.images %}
                     <div class="post-gallery mb-3">
                         {% for image_url in post.images %}
-                        <a href="{{ image_url }}" target="_blank" rel="noopener noreferrer" class="rounded">
+                        
                             <img src="{{ image_url }}" alt="Imagen de la publicación de {{ post.user_id }}" class="img-fluid">
-                        </a>
+                  
                         {% endfor %}
                     </div>
                     {% endif %}
