@@ -599,9 +599,9 @@ def process_next_post_invite(request, campaign_id):
 
         if campaign.last_email_at:
             elapsed = (timezone.now() - campaign.last_email_at).total_seconds()
-            if elapsed < 10:
+            if elapsed < 2:
                 progress = campaign_progress(campaign)
-                progress['next_delay'] = max(1, int(10 - elapsed))
+                progress['next_delay'] = max(1, int(2 - elapsed))
                 return JsonResponse(progress)
 
         item = campaign.items.select_for_update().filter(
@@ -636,7 +636,7 @@ def process_next_post_invite(request, campaign_id):
         item.save(update_fields=['status', 'processed_at'])
 
         progress = campaign_progress(campaign)
-        progress['next_delay'] = 10 if item.status == PostInviteCampaignItem.Status.SENT else 0
+        progress['next_delay'] = 2 if item.status == PostInviteCampaignItem.Status.SENT else 0
         progress['last_status'] = item.status
         progress['last_sku'] = registration.sku.sku
         return JsonResponse(progress)
