@@ -28,6 +28,7 @@ from ftplib import FTP, error_perm
 from urllib.parse import quote, urljoin
 from uuid import uuid4
 from user.models import Profile
+from .email_utils import send_post_review_email
 
 def ipInfo(addr=''):
     from urllib.request import urlopen
@@ -44,6 +45,43 @@ def ipInfo(addr=''):
         #will print the data line by line
         # print(attr,' '*13+'\t->\t',data[attr])
     return data
+
+
+def send_sku_post_invitation(request, user, item):
+    """Send the branded SKU-feed invitation without affecting registration success."""
+    if not user.email:
+        return False
+
+    try:
+        feed_url = request.build_absolute_uri(
+            reverse('sku_feed', kwargs={'sku': item.sku}),
+        )
+        first_name = user.first_name or user.username
+        subject = f'Cuéntanos tu experiencia con {item.name or item.sku}'
+        message = (
+            f'Hola {first_name},\n\n'
+            f'Gracias por registrar tu producto British Denim ({item.sku}). '
+            'Nos encantaría conocer tu experiencia y ver cómo lo usas.\n\n'
+            f'Comparte tu reseña aquí: {feed_url}\n\n'
+            'Tu publicación será revisada por nuestro equipo antes de aparecer en la comunidad.\n\n'
+            'British Denim'
+        )
+        html_message = render_to_string(
+            'britishdenim/emails/invite_to_post.html',
+            {
+                'first_name': first_name,
+                'sku': item.sku,
+                'product_name': item.name,
+                'feed_url': feed_url,
+                'logo_url': request.build_absolute_uri(static('britishdenim/images/logo.png')),
+            },
+        )
+        email = EmailMultiAlternatives(subject, message, settings.DEFAULT_FROM_EMAIL, [user.email])
+        email.attach_alternative(html_message, 'text/html')
+        email.send()
+    except Exception:
+        return False
+    return True
 
 
 def index(request):
@@ -125,6 +163,7 @@ def register(request, sku):
                 return redirect('register', sku=sku)
             newConsumer = Consumer(user_id=user,sku=item, where=where,when=when,country=country,city=city,getInfo=getInfo )
             newConsumer.save()
+            send_sku_post_invitation(request, user, item)
             messages.success(request, f"Producto {item.sku} {item.name} registrado exitosamente a tu perfil. ")
             return redirect('sku_feed', sku=item.sku)
             
@@ -143,6 +182,7 @@ def register(request, sku):
                     return redirect('register', sku=sku)
                 newConsumer = Consumer(user_id=request.user,sku=item, where=where,when=when,country=country,city=city )
                 newConsumer.save()
+                send_sku_post_invitation(request, request.user, item)
                 messages.success(request, f'Bienvenido {auth.first_name}. Gracias por registrar un producto.')
                 return redirect('sku_feed', sku=item.sku)
             else:
@@ -159,6 +199,7 @@ def register(request, sku):
                 return redirect('register', sku=sku)
             newConsumer = Consumer(user_id=request.user,sku=item, where=where,when=when,country=country,city=city)
             newConsumer.save()
+            send_sku_post_invitation(request, request.user, item)
             messages.success(request, f"Producto {item.sku} {item.name} registrado exitosamente a tu perfil. ")
             return redirect('sku_feed', sku=item.sku)
 
@@ -294,13 +335,14 @@ def skuFeed(request, sku):
                 except Exception:
                     messages.error(request, 'No fue posible subir las imágenes. Intenta nuevamente.')
                 else:
-                    skuPost.objects.create(
+                    new_post = skuPost.objects.create(
                         sku=item,
                         user_id=request.user,
                         text=text,
                         location=location,
                         imageList=json.dumps(image_urls),
                     )
+                    send_post_review_email(request, new_post)
                     messages.success(
                         request,
                         'Tu publicación fue enviada y será publicada cuando un administrador la apruebe.',
@@ -501,43 +543,17 @@ def invite_consumer_to_post(request, consumer_id):
         Consumer.objects.select_related('user_id', 'sku'),
         pk=consumer_id,
     )
-    recipient = registration.user_id.email
-    if not recipient:
+    if not registration.user_id.email:
         messages.error(request, 'Este consumidor no tiene un correo electrónico registrado.')
         return redirect('consumer')
 
-    feed_url = request.build_absolute_uri(
-        reverse('sku_feed', kwargs={'sku': registration.sku.sku}),
-    )
-    first_name = registration.user_id.first_name or registration.user_id.username
-    subject = f'Cuéntanos tu experiencia con {registration.sku.name or registration.sku.sku}'
-    message = (
-        f'Hola {first_name},\n\n'
-        f'Gracias por registrar tu producto British Denim ({registration.sku.sku}). '
-        'Nos encantaría conocer tu experiencia y ver cómo lo usas.\n\n'
-        f'Comparte tu reseña aquí: {feed_url}\n\n'
-        'Tu publicación será revisada por nuestro equipo antes de aparecer en la comunidad.\n\n'
-        'British Denim'
-    )
-    html_message = render_to_string(
-        'britishdenim/emails/invite_to_post.html',
-        {
-            'first_name': first_name,
-            'sku': registration.sku.sku,
-            'product_name': registration.sku.name,
-            'feed_url': feed_url,
-            'logo_url': request.build_absolute_uri(static('britishdenim/images/logo.png')),
-        },
-    )
-    try:
-        email = EmailMultiAlternatives(subject, message, settings.DEFAULT_FROM_EMAIL, [recipient])
-        email.attach_alternative(html_message, 'text/html')
-        email.send()
-    except Exception as e:
-        print(f'Error sending email to {recipient}: {e}')
+    if not send_sku_post_invitation(request, registration.user_id, registration.sku):
         messages.error(request, 'No fue posible enviar la invitación. Intenta nuevamente.')
     else:
-        messages.success(request, f'Invitación enviada a {recipient} para el SKU {registration.sku.sku}.')
+        messages.success(
+            request,
+            f'Invitación enviada a {registration.user_id.email} para el SKU {registration.sku.sku}.',
+        )
     return redirect('consumer')
 
 # API VIEWS

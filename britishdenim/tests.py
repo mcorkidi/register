@@ -31,7 +31,8 @@ class SkuFeedTests(TestCase):
         self.assertEqual(post_response.status_code, 403)
         self.assertEqual(skuPost.objects.count(), 0)
 
-    def test_registered_user_comment_is_pending_and_not_displayed(self):
+    @patch('britishdenim.views.send_post_review_email')
+    def test_registered_user_comment_is_pending_and_not_displayed(self, review_email_mock):
         self.client.force_login(self.owner)
 
         response = self.client.post(
@@ -43,6 +44,8 @@ class SkuFeedTests(TestCase):
         post = skuPost.objects.get()
         self.assertFalse(post.is_approved)
         self.assertEqual(post.location, 'PA')
+        review_email_mock.assert_called_once()
+        self.assertEqual(review_email_mock.call_args.args[1], post)
         self.assertContains(response, 'será publicado')
         self.assertNotContains(response, 'Great jacket!')
 
@@ -61,8 +64,9 @@ class SkuFeedTests(TestCase):
         self.assertContains(response, 'Approved comment')
         self.assertNotContains(response, 'Pending comment')
 
+    @patch('britishdenim.views.send_post_review_email')
     @patch('britishdenim.views.upload_sku_feed_images')
-    def test_image_urls_are_stored_with_pending_post(self, upload_images):
+    def test_image_urls_are_stored_with_pending_post(self, upload_images, review_email_mock):
         upload_images.return_value = ['https://ketengostorage.com/sku-feed-images/1/test.jpg']
         image = SimpleUploadedFile(
             'jacket.jpg',
@@ -79,6 +83,7 @@ class SkuFeedTests(TestCase):
             '["https://ketengostorage.com/sku-feed-images/1/test.jpg"]',
         )
         upload_images.assert_called_once()
+        review_email_mock.assert_called_once()
 
     def test_registered_user_can_like_an_approved_post_once(self):
         post = skuPost.objects.create(
@@ -93,6 +98,20 @@ class SkuFeedTests(TestCase):
         self.client.post(self.url, {'action': 'like', 'post_id': post.id})
 
         self.assertEqual(post.likepost_set.count(), 1)
+
+    @patch('britishdenim.admin.send_post_approval_email', return_value=True)
+    def test_bulk_approval_sends_approval_email_once(self, approval_email_mock):
+        from britishdenim.admin import approve_comments
+
+        post = skuPost.objects.create(sku=self.item, user_id=self.owner, text='Pending')
+        request = self.client.request().wsgi_request
+
+        approve_comments(None, request, skuPost.objects.filter(pk=post.pk))
+
+        post.refresh_from_db()
+        self.assertTrue(post.is_approved)
+        self.assertTrue(post.approval_email_sent)
+        approval_email_mock.assert_called_once()
 
 
 class StatsTests(TestCase):
@@ -164,6 +183,25 @@ class ConsumerTests(TestCase):
         self.assertEqual(sender, 'noreply@britishdenimlatam.com')
         self.assertEqual(recipients, ['reviewer@example.com'])
         email_mock.return_value.attach_alternative.assert_called_once()
+        email_mock.return_value.send.assert_called_once()
+
+    @patch('britishdenim.views.EmailMultiAlternatives')
+    @patch(
+        'britishdenim.views.ipInfo',
+        return_value={'city': 'Panama City', 'region': 'Panama', 'country': 'PA'},
+    )
+    def test_sku_registration_sends_review_invitation(self, ip_info_mock, email_mock):
+        user = User.objects.create_user('registered-user', 'registered@example.com', 'password')
+        item = Item.objects.create(sku='BD-600', name='Denim Shirt')
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse('register', kwargs={'sku': item.sku}),
+            {'regProd': '1', 'inputSku': item.sku},
+        )
+
+        self.assertRedirects(response, reverse('sku_feed', kwargs={'sku': item.sku}))
+        self.assertTrue(Consumer.objects.filter(user_id=user, sku=item).exists())
         email_mock.return_value.send.assert_called_once()
 
 

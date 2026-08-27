@@ -22,6 +22,7 @@ class skuPost(models.Model):
     creationDate = models.DateTimeField(auto_now_add=True)
     imageList = models.CharField(max_length=500, blank=True)
     is_approved = models.BooleanField(default=False)
+    approval_email_sent = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['-creationDate']
