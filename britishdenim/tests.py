@@ -19,12 +19,17 @@ class SkuFeedTests(TestCase):
         Consumer.objects.create(user_id=self.owner, sku=self.item)
         self.url = reverse('sku_feed', kwargs={'sku': self.item.sku})
 
-    def test_only_registered_user_can_access_feed(self):
+    def test_public_can_access_feed_but_unregistered_user_cannot_post(self):
+        anonymous_response = self.client.get(self.url)
         self.client.force_login(self.other_user)
 
         response = self.client.get(self.url)
+        post_response = self.client.post(self.url, {'text': 'Not registered'})
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(anonymous_response.status_code, 200)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(post_response.status_code, 403)
+        self.assertEqual(skuPost.objects.count(), 0)
 
     def test_registered_user_comment_is_pending_and_not_displayed(self):
         self.client.force_login(self.owner)

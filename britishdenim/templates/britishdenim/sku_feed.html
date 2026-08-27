@@ -58,8 +58,10 @@
     <div class="row">
         <div class="mx-auto justify-content-center"><h1>{{sku.sku}} - {{sku.name}}</h1></div>
 
-        {% if user.is_authenticated %}
+        {% if can_post %}
         <button type="button" class="btn btn-secondary mx-auto justify-content-right" data-toggle="modal" data-target="#staticBackdrop"  name="post">Post</button>
+        {% elif user.is_authenticated %}
+        <p class="text-muted mx-auto mb-0">Registra este producto para poder publicar una reseña.</p>
         {% endif %}
     </div>
     <hr>
@@ -90,6 +92,7 @@
                     </div>
                     {% endif %}
                     <footer class="border-top pt-3">
+                        {% if can_post %}
                         <form method="post">
                             {% csrf_token %}
                             <input type="hidden" name="action" value="like">
@@ -99,6 +102,9 @@
                                 {% if post.liked_by_current_user %}Te gusta{% else %}Me gusta{% endif %} · {{ post.like_count }}
                             </button>
                         </form>
+                        {% else %}
+                        <span class="text-muted"><i class="fas fa-heart mr-1" aria-hidden="true"></i>{{ post.like_count }}</span>
+                        {% endif %}
                     </footer>
                 </div>
             </article>
@@ -111,6 +117,7 @@
     </div>
 
 
+{% if can_post %}
 <!-- MODAL CONTENT -->
 
 <div id="staticBackdrop" class="modal fade" tabindex="-1" aria-hidden="true">
@@ -141,6 +148,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 
 
 </div>

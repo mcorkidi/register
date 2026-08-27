@@ -21,6 +21,7 @@ from django.conf import settings
 from django.db.models import Count
 from django.core.mail import send_mail
 from django.urls import reverse
+from django.contrib.auth.views import redirect_to_login
 from ftplib import FTP, error_perm
 from urllib.parse import quote, urljoin
 from uuid import uuid4
@@ -234,15 +235,19 @@ def upload_sku_feed_images(item, uploads):
     return uploaded_urls
 
 
-@login_required
 def skuFeed(request, sku):
     item = get_object_or_404(Item, sku=sku)
-    is_registered = Consumer.objects.filter(user_id=request.user, sku=item).exists()
-
-    if not (request.user.is_staff or is_registered):
-        return HttpResponseForbidden('Register this item before accessing its feed.')
+    can_post = (
+        request.user.is_authenticated
+        and Consumer.objects.filter(user_id=request.user, sku=item).exists()
+    )
 
     if request.method == 'POST':
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if not can_post:
+            return HttpResponseForbidden('Register this item before posting or liking its feed.')
+
         if request.POST.get('action') == 'like':
             post = get_object_or_404(
                 skuPost,
@@ -315,7 +320,7 @@ def skuFeed(request, sku):
             post.profile_image_url = post.user_id.profile.image_url
         except Profile.DoesNotExist:
             post.profile_image_url = ''
-    context = {'posts': posts, 'sku': item}
+    context = {'posts': posts, 'sku': item, 'can_post': can_post}
     return render(request, 'britishdenim/sku_feed.html', context)
 
 
