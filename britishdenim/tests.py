@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -8,6 +9,7 @@ from django.urls import reverse
 from unittest.mock import patch
 
 from .models import Consumer, Item, PostInviteCampaign, Scan, skuPost
+from .views import _post_invitation_token
 from user.models import Profile
 
 class SkuFeedTests(TestCase):
@@ -98,6 +100,35 @@ class SkuFeedTests(TestCase):
         self.client.post(self.url, {'action': 'like', 'post_id': post.id})
 
         self.assertEqual(post.likepost_set.count(), 1)
+
+    @patch('britishdenim.views.send_post_review_email')
+    def test_email_invitation_allows_guest_to_post_as_registered_user(self, review_email_mock):
+        registration = Consumer.objects.get(user_id=self.owner, sku=self.item)
+        invitation_url = '{}?{}'.format(
+            self.url,
+            urlencode({'invite': _post_invitation_token(registration)}),
+        )
+
+        response = self.client.post(invitation_url, {'text': 'Posted from my invitation link'})
+
+        post = skuPost.objects.get()
+        self.assertRedirects(response, invitation_url)
+        self.assertEqual(post.user_id, self.owner)
+        self.assertEqual(post.location, 'PA')
+        review_email_mock.assert_called_once()
+
+    def test_invitation_token_cannot_be_used_for_another_sku(self):
+        other_item = Item.objects.create(sku='BD-002', name='Denim Shirt')
+        registration = Consumer.objects.get(user_id=self.owner, sku=self.item)
+        other_url = '{}?{}'.format(
+            reverse('sku_feed', kwargs={'sku': other_item.sku}),
+            urlencode({'invite': _post_invitation_token(registration)}),
+        )
+
+        response = self.client.post(other_url, {'text': 'Wrong product'})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(skuPost.objects.count(), 0)
 
     @patch('britishdenim.admin.send_post_approval_email', return_value=True)
     def test_bulk_approval_sends_approval_email_once(self, approval_email_mock):

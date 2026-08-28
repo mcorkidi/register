@@ -23,12 +23,13 @@ from django.db import transaction
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from django.core.mail import EmailMultiAlternatives
+from django.core import signing
 from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.urls import reverse
 from django.contrib.auth.views import redirect_to_login
 from ftplib import FTP, error_perm
-from urllib.parse import quote, urljoin
+from urllib.parse import quote, urlencode, urljoin
 from uuid import uuid4
 from user.models import Profile
 from .email_utils import send_post_review_email
@@ -50,15 +51,62 @@ def ipInfo(addr=''):
     return data
 
 
-def send_sku_post_invitation(request, user, item):
+POST_INVITATION_TOKEN_MAX_AGE = 60 * 60 * 24 * 30
+POST_INVITATION_TOKEN_SALT = 'britishdenim.post-invitation'
+
+
+def _post_invitation_token(registration):
+    """Create a signed, time-limited token for one product registration."""
+    return signing.dumps(
+        {
+            'registration_id': registration.pk,
+            'user_id': registration.user_id_id,
+            'item_id': registration.sku_id,
+        },
+        salt=POST_INVITATION_TOKEN_SALT,
+    )
+
+
+def get_invited_registration(token, item):
+    """Return the registered owner when a valid invitation token is supplied."""
+    if not token:
+        return None
+
+    try:
+        payload = signing.loads(
+            token,
+            salt=POST_INVITATION_TOKEN_SALT,
+            max_age=getattr(settings, 'POST_INVITATION_TOKEN_MAX_AGE', POST_INVITATION_TOKEN_MAX_AGE),
+        )
+    except signing.BadSignature:
+        return None
+
+    if payload.get('item_id') != item.pk:
+        return None
+
+    registration = Consumer.objects.select_related('user_id').filter(
+        pk=payload.get('registration_id'),
+        sku=item,
+        user_id_id=payload.get('user_id'),
+    ).first()
+    return registration
+
+
+def send_sku_post_invitation(request, user, item, registration=None):
     """Send the branded SKU-feed invitation without affecting registration success."""
     if not user.email:
         return False
 
+    registration = registration or Consumer.objects.filter(user_id=user, sku=item).order_by('-pk').first()
+    if not registration:
+        return False
+
     try:
-        feed_url = request.build_absolute_uri(
+        invitation_url = '{}?{}'.format(
             reverse('sku_feed', kwargs={'sku': item.sku}),
+            urlencode({'invite': _post_invitation_token(registration)}),
         )
+        feed_url = request.build_absolute_uri(invitation_url)
         first_name = user.first_name or user.username
         subject = f'Cuéntanos tu experiencia con {item.name or item.sku}'
         message = (
@@ -166,7 +214,7 @@ def register(request, sku):
                 return redirect('register', sku=sku)
             newConsumer = Consumer(user_id=user,sku=item, where=where,when=when,country=country,city=city,getInfo=getInfo )
             newConsumer.save()
-            if send_sku_post_invitation(request, user, item):
+            if send_sku_post_invitation(request, user, item, newConsumer):
                 newConsumer.post_invitation_sent_at = timezone.now()
                 newConsumer.save(update_fields=['post_invitation_sent_at'])
             messages.success(request, f"Producto {item.sku} {item.name} registrado exitosamente a tu perfil. ")
@@ -187,7 +235,7 @@ def register(request, sku):
                     return redirect('register', sku=sku)
                 newConsumer = Consumer(user_id=request.user,sku=item, where=where,when=when,country=country,city=city )
                 newConsumer.save()
-                if send_sku_post_invitation(request, request.user, item):
+                if send_sku_post_invitation(request, request.user, item, newConsumer):
                     newConsumer.post_invitation_sent_at = timezone.now()
                     newConsumer.save(update_fields=['post_invitation_sent_at'])
                 messages.success(request, f'Bienvenido {auth.first_name}. Gracias por registrar un producto.')
@@ -206,7 +254,7 @@ def register(request, sku):
                 return redirect('register', sku=sku)
             newConsumer = Consumer(user_id=request.user,sku=item, where=where,when=when,country=country,city=city)
             newConsumer.save()
-            if send_sku_post_invitation(request, request.user, item):
+            if send_sku_post_invitation(request, request.user, item, newConsumer):
                 newConsumer.post_invitation_sent_at = timezone.now()
                 newConsumer.save(update_fields=['post_invitation_sent_at'])
             messages.success(request, f"Producto {item.sku} {item.name} registrado exitosamente a tu perfil. ")
@@ -289,18 +337,25 @@ def upload_sku_feed_images(item, uploads):
 
 def skuFeed(request, sku):
     item = get_object_or_404(Item, sku=sku)
-    can_post = (
+    invitation_token = request.GET.get('invite') or request.POST.get('invite')
+    invited_registration = get_invited_registration(invitation_token, item)
+    registered_user_can_post = (
         request.user.is_authenticated
         and Consumer.objects.filter(user_id=request.user, sku=item).exists()
     )
+    can_post = registered_user_can_post or invited_registration is not None
+    can_like = registered_user_can_post
+    post_author = invited_registration.user_id if invited_registration else request.user
 
     if request.method == 'POST':
-        if not request.user.is_authenticated:
+        if not request.user.is_authenticated and not invited_registration:
             return redirect_to_login(request.get_full_path())
         if not can_post:
             return HttpResponseForbidden('Register this item before posting or liking its feed.')
 
         if request.POST.get('action') == 'like':
+            if not can_like:
+                return HttpResponseForbidden('Sign in with the registered account before liking posts.')
             post = get_object_or_404(
                 skuPost,
                 pk=request.POST.get('post_id'),
@@ -316,7 +371,7 @@ def skuFeed(request, sku):
 
         text = request.POST.get('text', '').strip()
         try:
-            location = request.user.profile.location
+            location = post_author.profile.location
         except Profile.DoesNotExist:
             location = ''
         image_files = request.FILES.getlist('images')
@@ -346,7 +401,7 @@ def skuFeed(request, sku):
                 else:
                     new_post = skuPost.objects.create(
                         sku=item,
-                        user_id=request.user,
+                        user_id=post_author,
                         text=text,
                         location=location,
                         imageList=json.dumps(image_urls),
@@ -356,6 +411,13 @@ def skuFeed(request, sku):
                         request,
                         'Tu publicación fue enviada y será publicada cuando un administrador la apruebe.',
                     )
+        if invited_registration:
+            return redirect(
+                '{}?{}'.format(
+                    reverse('sku_feed', kwargs={'sku': item.sku}),
+                    urlencode({'invite': invitation_token}),
+                ),
+            )
         return redirect('sku_feed', sku=item.sku)
 
     posts = skuPost.objects.filter(sku=item, is_approved=True).select_related(
@@ -373,7 +435,14 @@ def skuFeed(request, sku):
             post.profile_image_url = post.user_id.profile.image_url
         except Profile.DoesNotExist:
             post.profile_image_url = ''
-    context = {'posts': posts, 'sku': item, 'can_post': can_post}
+    context = {
+        'posts': posts,
+        'sku': item,
+        'can_post': can_post,
+        'can_like': can_like,
+        'invite_token': invitation_token if invited_registration else '',
+        'is_invited_guest': invited_registration is not None and not request.user.is_authenticated,
+    }
     return render(request, 'britishdenim/sku_feed.html', context)
 
 
@@ -631,7 +700,7 @@ def process_next_post_invite(request, campaign_id):
             is_approved=True,
         ).exists():
             item.status = PostInviteCampaignItem.Status.SKIPPED_APPROVED
-        elif send_sku_post_invitation(request, registration.user_id, registration.sku):
+        elif send_sku_post_invitation(request, registration.user_id, registration.sku, registration):
             item.status = PostInviteCampaignItem.Status.SENT
             registration.post_invitation_sent_at = now
             registration.save(update_fields=['post_invitation_sent_at'])
@@ -682,7 +751,7 @@ def invite_consumer_to_post(request, consumer_id):
         messages.info(request, 'Este consumidor ya tiene una publicación aprobada para este SKU.')
         return redirect('consumer')
 
-    if not send_sku_post_invitation(request, registration.user_id, registration.sku):
+    if not send_sku_post_invitation(request, registration.user_id, registration.sku, registration):
         messages.error(request, 'No fue posible enviar la invitación. Intenta nuevamente.')
     else:
         registration.post_invitation_sent_at = timezone.now()

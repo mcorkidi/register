@@ -64,6 +64,11 @@
         <p class="text-muted mx-auto mb-0">Registra este producto para poder publicar una reseña.</p>
         {% endif %}
     </div>
+    {% if is_invited_guest %}
+    <div class="alert alert-info mt-3 mb-0" role="status">
+        Puedes publicar tu reseña desde esta invitación. Se registrará en tu perfil cuando sea aprobada.
+    </div>
+    {% endif %}
     <hr>
     <div class="row">
         <div class="col-12">
@@ -92,7 +97,7 @@
                     </div>
                     {% endif %}
                     <footer class="border-top pt-3">
-                        {% if can_post %}
+                        {% if can_like %}
                         <form method="post">
                             {% csrf_token %}
                             <input type="hidden" name="action" value="like">
@@ -130,6 +135,7 @@
             </div>
             <form method="post" enctype="multipart/form-data">
                 {% csrf_token %}
+                {% if invite_token %}<input type="hidden" name="invite" value="{{ invite_token }}">{% endif %}
                 <h2>Nuevo Post</h2>
                 <div class="input-group">
                     <span class="input-group-text">Comentario</span>
