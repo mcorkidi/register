@@ -2,6 +2,11 @@
 {% block body %} 
 {% load static %}
 
+<style>
+    .consumer-sort { background: none; border: 0; color: inherit; font: inherit; font-weight: 700; padding: 0; }
+    .consumer-sort:hover, .consumer-sort:focus { color: #d61f2c; text-decoration: underline; }
+</style>
+
 <div class="container">
     <ul class="nav nav-tabs">
         <li class="nav-item">
@@ -41,36 +46,38 @@
                     </div>
                     <div class="card-body">
                         <div class="pre-scrollable">
-                            <table id="bootstrap-data-table" class="table table-striped table-bordered">
+                            <table id="consumer-table" class="table table-striped table-bordered">
                                 <thead>
                                     <tr>
-                                        <th>User</th>
-                                        <th>Name</th>
-                                        <th>Country</th>
-                                        <th>Items</th>
+                                        <th><button type="button" class="consumer-sort" data-sort="username">User</button></th>
+                                        <th><button type="button" class="consumer-sort" data-sort="name">Name</button></th>
+                                        <th><button type="button" class="consumer-sort" data-sort="country">Country</button></th>
+                                        <th><button type="button" class="consumer-sort" data-sort="items">Items</button></th>
+                                        <th><button type="button" class="consumer-sort" data-sort="created">Registered on</button></th>
                                         <th>Invite to post</th>
                                         
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {% for consumer in consumers %}
-                                    <tr>
+                                    <tr data-username="{{ consumer.username }}" data-name="{{ consumer.full_name|default:consumer.username }}" data-country="{{ consumer.country }}" data-items="{{ consumer.skus|join:' ' }}" data-created="{{ consumer.created_at|date:'c' }}">
                                         <td>{{ consumer.username }}</td>
                                         <td>{{ consumer.full_name|default:'-' }}</td>
                                         <td>{{ consumer.country }}</td>
                                         <td>{% for sku in consumer.skus %}<span class="badge badge-secondary mr-1">{{ sku }}</span>{% endfor %}</td>
+                                        <td>{{ consumer.created_at|date:"d M Y · H:i"|default:'-' }}</td>
                                         <td>
                                             {% for registration in consumer.registrations %}
                                             <form method="post" action="{% url 'invite_consumer_to_post' consumer_id=registration.id %}" class="d-inline-block mb-1">
                                                 {% csrf_token %}
-                                                <button type="submit" class="btn btn-sm btn-primary">Invite · {{ registration.sku }}</button>
+                                                <button type="submit" class="btn btn-sm btn-primary" {% if registration.invitation_sent_at %}disabled title="Invitación enviada el {{ registration.invitation_sent_at|date:'d M Y · H:i' }}"{% endif %}>{% if registration.invitation_sent_at %}Invited · {{ registration.sku }}{% else %}Invite · {{ registration.sku }}{% endif %}</button>
                                             </form>
                                             {% endfor %}
                                         </td>
                                     </tr>
                                     {% empty %}
                                     <tr>
-                                        <td colspan="5" class="text-center text-muted">No hay consumidores con productos registrados.</td>
+                                        <td colspan="6" class="text-center text-muted">No hay consumidores con productos registrados.</td>
                                     </tr>
                                     {%endfor%} 
                                     
@@ -157,6 +164,28 @@
         });
 
         if (campaignId) processNext();
+
+        let currentSort = {key: 'created', direction: -1};
+        document.querySelectorAll('.consumer-sort').forEach(function (button) {
+            button.addEventListener('click', function () {
+                const key = button.dataset.sort;
+                currentSort.direction = currentSort.key === key ? -currentSort.direction : 1;
+                currentSort.key = key;
+                const body = document.querySelector('#consumer-table tbody');
+                const rows = Array.from(body.querySelectorAll('tr[data-username]'));
+                rows.sort(function (left, right) {
+                    let leftValue = left.dataset[key] || '';
+                    let rightValue = right.dataset[key] || '';
+                    if (key === 'created') {
+                        leftValue = new Date(leftValue).getTime() || 0;
+                        rightValue = new Date(rightValue).getTime() || 0;
+                        return (leftValue - rightValue) * currentSort.direction;
+                    }
+                    return leftValue.localeCompare(rightValue, undefined, {numeric: true, sensitivity: 'base'}) * currentSort.direction;
+                });
+                rows.forEach(function (row) { body.appendChild(row); });
+            });
+        });
     }());
 </script>
 

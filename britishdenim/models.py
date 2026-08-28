@@ -48,6 +48,7 @@ class Consumer(models.Model):
 
     user_id = models.ForeignKey(User, on_delete=models.CASCADE, default=1)
     sku = models.ForeignKey(Item,on_delete=models.CASCADE)
+    creationDate = models.DateTimeField(auto_now_add=True)
     where = models.CharField(max_length=100, default="")
     when = models.CharField(max_length=100, default="")
     country = models.CharField(max_length=100, default="")

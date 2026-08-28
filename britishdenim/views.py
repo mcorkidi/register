@@ -508,30 +508,37 @@ def consumer(request):
         'country', 'user_id__username', 'sku__sku',
     ).values_list(
         'id',
+        'creationDate',
         'user_id__username',
         'user_id__first_name',
         'user_id__last_name',
         'user_id__email',
         'country',
         'sku__sku',
+        'post_invitation_sent_at',
     )
     consumers_by_username = {}
-    for consumer_id, username, first_name, last_name, email, country, sku in consumer_rows.iterator(chunk_size=2000):
+    for consumer_id, created_at, username, first_name, last_name, email, country, sku, invitation_sent_at in consumer_rows.iterator(chunk_size=2000):
         consumer = consumers_by_username.setdefault(
             username,
             {
                 'username': username,
                 'full_name': f'{first_name} {last_name}'.strip(),
                 'email': email,
+                'created_at': created_at,
                 'countries': set(),
                 'skus': set(),
                 'registrations': [],
             },
         )
+        if created_at and (not consumer['created_at'] or created_at < consumer['created_at']):
+            consumer['created_at'] = created_at
         if country:
             consumer['countries'].add(country)
         consumer['skus'].add(sku)
-        consumer['registrations'].append({'id': consumer_id, 'sku': sku})
+        consumer['registrations'].append(
+            {'id': consumer_id, 'sku': sku, 'invitation_sent_at': invitation_sent_at},
+        )
 
     consumers = []
     for consumer in consumers_by_username.values():
