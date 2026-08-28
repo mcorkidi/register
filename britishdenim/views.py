@@ -348,6 +348,7 @@ def skuFeed(request, sku):
     post_author = invited_registration.user_id if invited_registration else request.user
 
     if request.method == 'POST':
+        post_created = False
         if not request.user.is_authenticated and not invited_registration:
             return redirect_to_login(request.get_full_path())
         if not can_post:
@@ -407,11 +408,14 @@ def skuFeed(request, sku):
                         imageList=json.dumps(image_urls),
                     )
                     send_post_review_email(request, new_post)
+                    post_created = True
                     messages.success(
                         request,
                         'Tu publicación fue enviada y será publicada cuando un administrador la apruebe.',
                     )
         if invited_registration:
+            if post_created:
+                return redirect('sku_feed', sku=item.sku)
             return redirect(
                 '{}?{}'.format(
                     reverse('sku_feed', kwargs={'sku': item.sku}),
@@ -442,6 +446,7 @@ def skuFeed(request, sku):
         'can_like': can_like,
         'invite_token': invitation_token if invited_registration else '',
         'is_invited_guest': invited_registration is not None and not request.user.is_authenticated,
+        'auto_open_post_modal': invited_registration is not None,
     }
     return render(request, 'britishdenim/sku_feed.html', context)
 
