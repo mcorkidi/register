@@ -592,6 +592,7 @@ def consumer(request):
         'post_invitation_sent_at',
     )
     consumers_by_username = {}
+    country_consumers = {}
     for consumer_id, created_at, username, first_name, last_name, email, country, sku, invitation_sent_at in consumer_rows.iterator(chunk_size=2000):
         consumer = consumers_by_username.setdefault(
             username,
@@ -609,6 +610,7 @@ def consumer(request):
             consumer['created_at'] = created_at
         if country:
             consumer['countries'].add(country)
+        country_consumers.setdefault(country or 'Unknown', set()).add(username)
         consumer['skus'].add(sku)
         consumer['registrations'].append(
             {'id': consumer_id, 'sku': sku, 'invitation_sent_at': invitation_sent_at},
@@ -620,12 +622,20 @@ def consumer(request):
         consumer['skus'] = sorted(consumer['skus'])
         consumers.append(consumer)
 
+    country_counts = {}
+    for country, usernames in country_consumers.items():
+        country_name = get_country_name(country) or country
+        country_counts[country_name] = country_counts.get(country_name, 0) + len(usernames)
+    country_counts = dict(sorted(country_counts.items(), key=lambda row: (-row[1], row[0])))
+
     active_campaign = PostInviteCampaign.objects.filter(
         status=PostInviteCampaign.Status.ACTIVE,
     ).order_by('-created_at').first()
     context = {
         'consumers': consumers,
         'count': len(consumers),
+        'consumer_country_labels': json.dumps(list(country_counts.keys())),
+        'consumer_country_values': json.dumps(list(country_counts.values())),
         'active_campaign': active_campaign,
     }
     return render(request, 'britishdenim/consumer.html', context)
@@ -680,9 +690,9 @@ def process_next_post_invite(request, campaign_id):
 
         if campaign.last_email_at:
             elapsed = (timezone.now() - campaign.last_email_at).total_seconds()
-            if elapsed < 2:
+            if elapsed < 10:
                 progress = campaign_progress(campaign)
-                progress['next_delay'] = max(1, int(2 - elapsed))
+                progress['next_delay'] = max(1, int(10 - elapsed))
                 return JsonResponse(progress)
 
         item = campaign.items.select_for_update().filter(
@@ -717,7 +727,7 @@ def process_next_post_invite(request, campaign_id):
         item.save(update_fields=['status', 'processed_at'])
 
         progress = campaign_progress(campaign)
-        progress['next_delay'] = 2 if item.status == PostInviteCampaignItem.Status.SENT else 0
+        progress['next_delay'] = 10 if item.status == PostInviteCampaignItem.Status.SENT else 0
         progress['last_status'] = item.status
         progress['last_sku'] = registration.sku.sku
         return JsonResponse(progress)

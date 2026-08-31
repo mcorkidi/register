@@ -33,8 +33,20 @@
             <button type="button" id="cancel-campaign" class="btn btn-outline-danger" disabled>Cancelar</button>
         </div>
     </div>
-      
-  
+
+    <div class="row mb-4">
+        <div class="col-lg-6 mx-auto">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">Consumidores por país</h5>
+                    <div class="position-relative" style="height: 320px;">
+                        <canvas id="consumers-country-chart" aria-label="Distribución de consumidores por país" role="img"></canvas>
+                    </div>
+                    <p id="country-chart-empty" class="text-muted text-center mb-0 d-none">No hay países registrados todavía.</p>
+                </div>
+            </div>
+        </div>
+    </div>
 
 
     <div class="row">
@@ -91,8 +103,52 @@
 
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@2.7.3/dist/Chart.bundle.min.js"></script>
 <script>
     (function () {
+        const countryLabels = {{ consumer_country_labels|safe }};
+        const countryValues = {{ consumer_country_values|safe }};
+        const countryCanvas = document.getElementById('consumers-country-chart');
+        const countryEmptyState = document.getElementById('country-chart-empty');
+        const countryColors = [
+            '#d61f2c', '#343a40', '#e7a41a', '#207398', '#6f42c1',
+            '#2a9d8f', '#e76f51', '#577590', '#8ab17d', '#bc6c25',
+        ];
+
+        if (countryValues.length) {
+            new Chart(countryCanvas, {
+                type: 'pie',
+                data: {
+                    labels: countryLabels,
+                    datasets: [{
+                        data: countryValues,
+                        backgroundColor: countryValues.map(function (_, index) {
+                            return countryColors[index % countryColors.length];
+                        }),
+                        borderColor: '#ffffff',
+                        borderWidth: 2,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    legend: { position: 'bottom' },
+                    tooltips: {
+                        callbacks: {
+                            label: function (tooltipItem, data) {
+                                const label = data.labels[tooltipItem.index] || '';
+                                const value = data.datasets[tooltipItem.datasetIndex].data[tooltipItem.index];
+                                return `${label}: ${value}`;
+                            },
+                        },
+                    },
+                },
+            });
+        } else {
+            countryCanvas.classList.add('d-none');
+            countryEmptyState.classList.remove('d-none');
+        }
+
         const campaignElement = document.getElementById('invite-campaign');
         const startButton = document.getElementById('start-campaign');
         const cancelButton = document.getElementById('cancel-campaign');

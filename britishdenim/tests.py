@@ -194,6 +194,8 @@ class ConsumerTests(TestCase):
         self.assertEqual(response.context['count'], 1)
         self.assertEqual(response.context['consumers'][0]['username'], 'customer')
         self.assertEqual(response.context['consumers'][0]['skus'], ['BD-400', 'BD-401'])
+        self.assertEqual(json.loads(response.context['consumer_country_labels']), ['Panama'])
+        self.assertEqual(json.loads(response.context['consumer_country_values']), [1])
 
     @patch('britishdenim.views.EmailMultiAlternatives')
     def test_staff_can_email_review_invitation_for_registered_sku(self, email_mock):
